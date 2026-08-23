@@ -1,0 +1,9 @@
+# Zebra printer registry for the optional ZPL-Studio server.
+#
+# `name`, `ip` (or `host`) and `port` are required. `id` is optional; when it
+# is omitted, `name` becomes the API printerId. `default` is optional too.
+# The optional legacy columns mndt, info, dpi and peel are accepted too, so a
+# pre-existing printer registry can normally be copied here unchanged.
+mndt;name;ip;port;info;dpi;peel;default
+100;WARENAUSGANG;192.0.2.10;9100;Warenausgang;300;true;true
+100;TESTDRUCKER;127.0.0.1;9100;Testdrucker;300;false;false

@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ZPL-Studio</title>
+<link rel="icon" type="image/svg+xml" href="../favicon.svg">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <svg class="brand-mark" viewBox="0 0 64 64" aria-hidden="true"><path d="M16,14 H47 A3,3 0 0 1 50,17 V47 A3,3 0 0 1 47,50 H16 L6,32 Z" fill="#FFFFFF"/><circle cx="23" cy="32" r="3.2" fill="#051E50"/><rect x="29" y="21" width="2.4" height="22" fill="#FFD602"/><rect x="34" y="21" width="3.4" height="22" fill="#FFD602"/><rect x="40" y="21" width="2" height="22" fill="#FFD602"/><rect x="44" y="21" width="4" height="22" fill="#FFD602"/></svg>
+    ZPL-Studio
+  </div>
+
+  <div class="tb-group">
+    <button id="btnNew" title="Neues leeres Label" data-i18n="Neu" data-i18n-title="Neues leeres Label">Neu</button>
+    <button id="btnSave" title="Zurück in die geöffnete Datei speichern" data-i18n="Speichern" data-i18n-title="Zurück in die geöffnete Datei speichern" disabled>Speichern</button>
+    <button id="btnDownload" title="Als .zpl-Datei herunterladen" data-i18n="Herunterladen" data-i18n-title="Als .zpl-Datei herunterladen">Herunterladen</button>
+    <select id="exportFormatSelect" title="Label als Bild oder PDF exportieren" data-i18n-title="Label als Bild oder PDF exportieren">
+      <option value="" selected disabled data-i18n="Exportieren als…">Exportieren als&hellip;</option>
+      <option value="png">PNG</option>
+      <option value="jpg">JPG</option>
+      <option value="gif">GIF</option>
+      <option value="pdf">PDF</option>
+    </select>
+    <button id="btnPrintRaster" title="Label als Bild über den Systemdruckdialog drucken" data-i18n="print.raster" data-i18n-title="print.raster.title">Bild drucken</button>
+    <!-- Only shown once an optional backend advertising a print capability
+         is detected (see BackendClient.probe() in ../zplkit/backend-client.js) -
+         hidden by default so a deployment without one sees no change. -->
+    <button id="btnPrintBackend" class="hidden" title="Über den konfigurierten Backend-Dienst drucken" data-i18n="Drucken…" data-i18n-title="Über den konfigurierten Backend-Dienst drucken">Drucken&hellip;</button>
+  </div>
+
+  <div class="tb-group">
+    <button id="btnUndo" title="Rückgängig (Strg+Z)" aria-label="Rückgängig" data-i18n-title="Rückgängig (Strg+Z)" data-i18n-aria-label="Rückgängig">&#8634;</button>
+    <button id="btnRedo" title="Wiederholen (Strg+Y)" aria-label="Wiederholen" data-i18n-title="Wiederholen (Strg+Y)" data-i18n-aria-label="Wiederholen">&#8635;</button>
+  </div>
+
+  <div class="tb-group">
+    <button id="btnZoomOut" title="Verkleinern" aria-label="Verkleinern" data-i18n-title="Verkleinern" data-i18n-aria-label="Verkleinern">&minus;</button>
+    <span id="zoomLabel" class="zoom-label">100%</span>
+    <button id="btnZoomIn" title="Vergrößern" aria-label="Vergrößern" data-i18n-title="Vergrößern" data-i18n-aria-label="Vergrößern">+</button>
+    <button id="btnZoomFit" title="Einpassen" data-i18n="Einpassen" data-i18n-title="Einpassen">Einpassen</button>
+  </div>
+
+  <div class="tb-group">
+    <label class="chk"><input type="checkbox" id="chkGrid"> <span data-i18n="Gitter">Gitter</span></label>
+    <input type="number" id="gridSize" value="10" min="1" max="500" title="Gitterweite in Dots" data-i18n-title="Gitterweite in Dots" class="grid-size-input">
+  </div>
+
+  <div class="tb-group">
+    <select id="languageSelect" title="Sprache" aria-label="Sprache" data-i18n-title="Sprache" data-i18n-aria-label="Sprache">
+      <option value="de">DE</option>
+      <option value="en">EN</option>
+      <option value="fr">FR</option>
+    </select>
+  </div>
+
+  <div class="tb-group tb-right">
+    <label class="chk"><input type="checkbox" id="chkSampleData"> <span data-i18n="Beispieldaten anzeigen">Beispieldaten anzeigen</span></label>
+    <button id="btnCompareLabels" title="Aktuelles Label mit einem anderen vergleichen (aus der Bibliothek oder per Upload)" data-i18n="Vergleichen…" data-i18n-title="Aktuelles Label mit einem anderen vergleichen (aus der Bibliothek oder per Upload)">Vergleichen…</button>
+    <button id="btnLabelary" title="Exakte Druckvorschau über den öffentlichen Labelary-Dienst abrufen (sendet den ZPL-Code an labelary.com)" data-i18n="Exakte Vorschau…" data-i18n-title="Exakte Druckvorschau über den öffentlichen Labelary-Dienst abrufen (sendet den ZPL-Code an labelary.com)">Exakte Vorschau…</button>
+    <button id="btnShortcuts" title="Tastaturkürzel anzeigen" data-i18n-title="Tastaturkürzel anzeigen">?</button>
+  </div>
+</header>
+
+<div class="main">
+  <aside class="toolbox">
+    <div class="tool-group-title" data-i18n="Werkzeuge">Werkzeuge</div>
+    <div class="tool-grid">
+      <button class="tool-btn active" data-tool="select" title="Auswählen / Verschieben" data-i18n-title="Auswählen / Verschieben" aria-pressed="true">
+        <svg viewBox="0 0 24 24"><path d="M4 3l7 17 2-7 7-2z"/></svg>
+        <span data-i18n="Auswahl">Auswahl</span>
+      </button>
+      <button class="tool-btn" data-tool="text" title="Textfeld hinzufügen" data-i18n-title="Textfeld hinzufügen" aria-pressed="false">
+        <svg viewBox="0 0 24 24"><path d="M4 4h16v3h-1V6H13v13h2v1H9v-1h2V6H5v1H4z"/></svg>
+        <span data-i18n="Text">Text</span>
+      </button>
+      <button class="tool-btn" data-tool="barcode" title="Barcode hinzufügen" data-i18n-title="Barcode hinzufügen" aria-pressed="false">
+        <svg viewBox="0 0 24 24"><path d="M2 4h1v16H2zM4.5 4h1v16h-1zM7 4h2v16H7zM10.5 4h1v16h-1zM13 4h1v16h-1zM15.5 4h2v16h-2zM19 4h1v16h-1zM21 4h1v16h-1z"/></svg>
+        <span data-i18n="Barcode">Barcode</span>
+      </button>
+      <button class="tool-btn" data-tool="box" title="Box hinzufügen" data-i18n-title="Box hinzufügen" aria-pressed="false">
+        <svg viewBox="0 0 24 24"><path d="M3 3h18v18H3zm2 2v14h14V5z"/></svg>
+        <span data-i18n="Box">Box</span>
+      </button>
+      <button class="tool-btn" data-tool="circle" title="Kreis hinzufügen" data-i18n-title="Kreis hinzufügen" aria-pressed="false">
+        <svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 100 18 9 9 0 000-18zm0 2a7 7 0 110 14 7 7 0 010-14z"/></svg>
+        <span data-i18n="Kreis">Kreis</span>
+      </button>
+      <button class="tool-btn" data-tool="line" title="Linie hinzufügen (Diagonale/Horizontale/Vertikale)" data-i18n-title="Linie hinzufügen (Diagonale/Horizontale/Vertikale)" aria-pressed="false">
+        <svg viewBox="0 0 24 24"><path d="M4.3 21L3 19.7 19.7 3 21 4.3z"/></svg>
+        <span data-i18n="Linie">Linie</span>
+      </button>
+      <button class="tool-btn" data-tool="ellipse" title="Ellipse hinzufügen" data-i18n-title="Ellipse hinzufügen" aria-pressed="false">
+        <svg viewBox="0 0 24 24"><path d="M12 5c5.5 0 9 3.13 9 7s-3.5 7-9 7-9-3.13-9-7 3.5-7 9-7zm0 2.4c-4.2 0-6.6 2.4-6.6 4.6s2.4 4.6 6.6 4.6 6.6-2.4 6.6-4.6-2.4-4.6-6.6-4.6z"/></svg>
+        <span data-i18n="Ellipse">Ellipse</span>
+      </button>
+      <button class="tool-btn" data-tool="graphic" title="Grafik / Logo einfügen" data-i18n-title="Grafik / Logo einfügen" aria-pressed="false">
+        <svg viewBox="0 0 24 24"><path d="M4 4h16v16H4zm2 2v9l4-4 3 3 3-4 2 3V6zM8 8a1.5 1.5 0 100 3 1.5 1.5 0 000-3z"/></svg>
+        <span data-i18n="Grafik">Grafik</span>
+      </button>
+    </div>
+    <input type="file" id="graphicInput" accept="image/*" hidden>
+  </aside>
+
+  <div class="canvas-wrap" id="canvasWrap">
+    <canvas id="labelCanvas"></canvas>
+    <div id="coordHud" class="coord-hud hidden" aria-hidden="true"></div>
+  </div>
+
+  <aside class="inspector">
+    <details class="inspector-library" id="libraryDetails" open>
+      <summary><span data-i18n="Bibliothek">Bibliothek</span><span class="inspector-library-hint" id="libraryHint" data-i18n="Ordner, Dateien &amp; Beispiele">Ordner, Dateien &amp; Beispiele</span></summary>
+      <div class="inspector-library-body">
+        <div class="btn-row">
+          <button id="btnOpenFolder" title="Ordner mit .zpl-Dateien öffnen (wenn vom Browser unterstützt)" data-i18n="Ordner öffnen…" data-i18n-title="Ordner mit .zpl-Dateien öffnen (wenn vom Browser unterstützt)">Ordner öffnen…</button>
+          <button id="btnOpenFile" title="Einzelne .zpl-Datei öffnen" data-i18n="Datei öffnen…" data-i18n-title="Einzelne .zpl-Datei öffnen">Datei öffnen…</button>
+        </div>
+        <div class="btn-row">
+          <select id="sampleSelect" title="Ein eingebautes Beispiel-Label laden, um den Editor auszuprobieren" data-i18n-title="Ein eingebautes Beispiel-Label laden, um den Editor auszuprobieren">
+            <option value="" selected disabled data-i18n="Beispiel laden…">Beispiel laden…</option>
+            <option value="basic" data-i18n="Basis (Box, Text, Barcode)">Basis (Box, Text, Barcode)</option>
+            <option value="variables" data-i18n="Mit Variablen ($NAME$)">Mit Variablen ($NAME$)</option>
+            <option value="barcodes" data-i18n="Mit mehreren Barcodes">Mit mehreren Barcodes</option>
+          </select>
+        </div>
+        <input type="file" id="fileInput" accept=".zpl,.200zpl,.300zpl,.txt,.prn" hidden>
+        <div id="libraryStatus" class="library-status">Kein Ordner geöffnet</div>
+        <ul id="libraryList" class="library-list"></ul>
+      </div>
+    </details>
+
+    <div class="tabs" role="tablist">
+      <button class="tab-btn active" data-tab="props" role="tab" aria-selected="true" data-i18n="Eigenschaften">Eigenschaften</button>
+      <button class="tab-btn" data-tab="layers" role="tab" aria-selected="false" data-i18n="Ebenen">Ebenen</button>
+      <button class="tab-btn" data-tab="vars" role="tab" aria-selected="false" data-i18n="Variablen">Variablen</button>
+      <button class="tab-btn" data-tab="zpl" role="tab" aria-selected="false" data-i18n="ZPL-Code">ZPL-Code</button>
+      <button class="tab-btn" data-tab="merge" role="tab" aria-selected="false" data-i18n="Seriendruck">Seriendruck</button>
+      <button class="tab-btn" data-tab="history" role="tab" aria-selected="false" data-i18n="Verlauf">Verlauf</button>
+    </div>
+
+    <div class="tab-panel active" id="tab-props" role="tabpanel">
+      <div id="labelSettingsForm" class="prop-form"></div>
+      <div id="propForm" class="prop-form hidden">
+        <p class="hint" data-i18n="Kein Element ausgewählt. Wähle ein Element auf dem Label oder füge über die Werkzeugleiste eines hinzu.">Kein Element ausgewählt. Wähle ein Element auf dem Label oder füge über die Werkzeugleiste eines hinzu.</p>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="tab-layers" role="tabpanel">
+      <p class="hint" data-i18n="Reihenfolge entspricht der Druckreihenfolge – unten in der Liste wird zuerst gedruckt, oben zuletzt (also vorne). Ziehen zum Umsortieren, Auge zum Aus-/Einblenden in der Vorschau (wird nicht mitgedruckt), Name zum Umbenennen.">Reihenfolge entspricht der Druckreihenfolge &ndash; unten in der Liste wird zuerst gedruckt, oben zuletzt (also vorne). Ziehen zum Umsortieren, Auge zum Aus-/Einblenden in der Vorschau (wird nicht mitgedruckt), Name zum Umbenennen.</p>
+      <ul id="layersList" class="layers-list"></ul>
+    </div>
+
+    <div class="tab-panel" id="tab-vars" role="tabpanel">
+      <p class="hint" data-i18n-html="hint.variables">Platzhalter im Format <code>$NAME$</code> werden automatisch erkannt (z.&nbsp;B. aus XML-Exporten). Trage hier Beispielwerte ein, um die Vorschau zu testen &ndash; beim Export bleiben die Platzhalter unverändert erhalten.</p>
+      <div class="btn-row">
+        <button id="btnImportVarsXml" title="Werte aus einer Variablen-XML (z. B. einem „Variables“-Export) übernehmen" data-i18n="XML-Datei laden…" data-i18n-title="Werte aus einer Variablen-XML (z. B. einem „Variables“-Export) übernehmen">XML-Datei laden&hellip;</button>
+      </div>
+      <input type="file" id="varsXmlInput" accept=".xml" hidden>
+      <div class="field-row">
+        <label for="varsXmlPaste" data-i18n="Oder XML einfügen">Oder XML einfügen</label>
+        <textarea id="varsXmlPaste" rows="4" placeholder="&lt;Variables&gt;&hellip;&lt;/Variables&gt; hier einfügen…" data-i18n-placeholder="&lt;Variables&gt;…&lt;/Variables&gt; hier einfügen…"></textarea>
+      </div>
+      <div class="btn-row">
+        <button id="btnApplyVarsXmlPaste" data-i18n="Übernehmen">Übernehmen</button>
+      </div>
+      <div id="varsXmlStatus" class="hint" aria-live="polite"></div>
+      <label class="chk"><input type="checkbox" id="chkHideUnfilled"> <span data-i18n="Nicht befüllte Platzhalter in der Vorschau als leer anzeigen">Nicht befüllte Platzhalter in der Vorschau als leer anzeigen</span></label>
+      <div id="varsForm" class="prop-form"></div>
+
+      <div class="section-title" data-i18n="Platzhalter umbenennen">Platzhalter umbenennen</div>
+      <p class="hint" data-i18n="Ersetzt einen Platzhalternamen in allen Text- und Barcode-Feldern des Labels – praktisch, wenn sich ein Feldname ändert.">Ersetzt einen Platzhalternamen in allen Text- und Barcode-Feldern des Labels &ndash; praktisch, wenn sich ein Feldname ändert.</p>
+      <div class="field-row-inline">
+        <div class="field-row"><label for="varRenameFrom" data-i18n="Von">Von</label><select id="varRenameFrom"></select></div>
+        <div class="field-row"><label for="varRenameTo" data-i18n="Zu">Zu</label><input type="text" id="varRenameTo" placeholder="NEUERNAME"></div>
+      </div>
+      <div class="btn-row"><button id="btnVarRename" data-i18n="Umbenennen">Umbenennen</button></div>
+    </div>
+
+    <div class="tab-panel" id="tab-zpl" role="tabpanel">
+      <p class="hint" data-i18n="Live erzeugter ZPL-Code. Du kannst ihn hier bearbeiten und auf „Übernehmen“ klicken, um das Label neu zu laden – praktisch für ZPL-Befehle, die der visuelle Editor nicht abbildet.">Live erzeugter ZPL-Code. Du kannst ihn hier bearbeiten und auf &bdquo;Übernehmen&ldquo; klicken, um das Label neu zu laden &ndash; praktisch für ZPL-Befehle, die der visuelle Editor nicht abbildet.</p>
+      <div class="btn-row zpl-view-toggle">
+        <button id="btnZplViewCode" class="zpl-view-btn active" aria-pressed="true" data-i18n="Code">Code</button>
+        <button id="btnZplViewExplain" class="zpl-view-btn" aria-pressed="false" data-i18n="Erklärte Ansicht – ZPL lernen">Erklärte Ansicht &ndash; ZPL lernen</button>
+      </div>
+      <div id="zplCodeWrap" class="zpl-code-wrap">
+        <div id="zplLineHighlightBar" class="zpl-line-highlight-bar hidden" aria-hidden="true"></div>
+        <textarea id="zplSource" spellcheck="false"></textarea>
+      </div>
+      <div id="zplExplain" class="zpl-explain hidden">
+        <pre id="zplExplainCode" class="zpl-explain-code"></pre>
+        <div class="section-title" data-i18n="Befehle in diesem Label">Befehle in diesem Label</div>
+        <p class="hint" data-i18n="Jeder in diesem Etikett verwendete ZPL-Befehl, kurz erklärt. Im Code oben zeigt der Mauszeiger über einem hervorgehobenen Befehl dieselbe Erklärung als Tooltip.">Jeder in diesem Etikett verwendete ZPL-Befehl, kurz erklärt. Im Code oben zeigt der Mauszeiger über einem hervorgehobenen Befehl dieselbe Erklärung als Tooltip.</p>
+        <ul id="zplExplainLegend" class="zpl-explain-legend"></ul>
+      </div>
+      <button id="btnApplyZpl" data-i18n="Übernehmen">Übernehmen</button>
+    </div>
+
+    <div class="tab-panel" id="tab-merge" role="tabpanel">
+      <p class="hint" data-i18n-html="hint.merge-intro">Seriendruck: CSV- oder XLSX-Datei hochladen &ndash; für jede Zeile wird ein Label erzeugt, indem <code>$SPALTENNAME$</code>-Platzhalter (wie im Tab &bdquo;Variablen&ldquo;) durch den jeweiligen Zellwert ersetzt werden. Anschließend als ZPL für einen Zebra-Drucker oder als A4-Bogen mit mehreren Labels drucken.</p>
+
+      <div class="section-title" data-i18n="Datenquelle">Datenquelle</div>
+      <div class="btn-row">
+        <button id="btnMergeLoadData" data-i18n="CSV/XLSX-Datei wählen…">CSV/XLSX-Datei wählen…</button>
+      </div>
+      <input type="file" id="mergeDataInput" accept=".csv,.txt,.xlsx" hidden>
+      <div id="mergeDataStatus" class="hint" aria-live="polite">Keine Datei geladen</div>
+      <div id="mergeSheetPicker" class="field-row hidden">
+        <label for="mergeSheetSelect" data-i18n="Tabellenblatt">Tabellenblatt</label>
+        <select id="mergeSheetSelect"></select>
+      </div>
+      <div id="mergeDataPreview" class="merge-table-wrap"></div>
+
+      <div class="section-title" data-i18n="Vorlage">Vorlage</div>
+      <label class="chk"><input type="radio" name="mergeTemplateMode" id="mergeModeSingle" value="single" checked> <span data-i18n="Aktuelles Label für alle Zeilen verwenden">Aktuelles Label für alle Zeilen verwenden</span></label>
+      <label class="chk"><input type="radio" name="mergeTemplateMode" id="mergeModeColumn" value="column"> <span data-i18n="Vorlagen-Datei pro Zeile aus einer Spalte wählen">Vorlagen-Datei pro Zeile aus einer Spalte wählen</span></label>
+      <div id="mergeColumnModeFields" class="hidden">
+        <div class="field-row">
+          <label for="mergeTemplateColumn" data-i18n="Spalte mit Dateiname">Spalte mit Dateiname</label>
+          <select id="mergeTemplateColumn"></select>
+        </div>
+        <p class="hint" data-i18n="Vorlagen werden aus dem geöffneten Ordner (siehe oben, „Ordner öffnen…“) übernommen, oder hier manuell hochgeladen.">Vorlagen werden aus dem geöffneten Ordner (siehe oben, &bdquo;Ordner öffnen…&ldquo;) übernommen, oder hier manuell hochgeladen.</p>
+        <div class="btn-row"><button id="btnMergeLoadTemplates" data-i18n="Vorlagen-Dateien wählen…">Vorlagen-Dateien wählen…</button></div>
+        <input type="file" id="mergeTemplatesInput" accept=".zpl,.200zpl,.300zpl,.txt,.prn" multiple hidden>
+        <div id="mergeTemplatesStatus" class="hint" aria-live="polite"></div>
+      </div>
+
+      <div class="section-title" data-i18n="Vorschau">Vorschau</div>
+      <div id="mergeSummary" class="hint merge-summary" aria-live="polite">Noch keine Daten geladen.</div>
+      <div id="mergePreviewGrid" class="merge-preview-grid"></div>
+
+      <div class="section-title" data-i18n="Ausgabe: Zebra-Drucker (ZPL)">Ausgabe: Zebra-Drucker (ZPL)</div>
+      <p class="hint" data-i18n-html="hint.merge-zpl-output">Erzeugt ein ZPL-Dokument mit allen Labels hintereinander (<code>^XA…^XZ</code> je Zeile).</p>
+      <div class="btn-row">
+        <button id="btnMergeDownloadZpl" data-i18n="ZPL herunterladen">ZPL herunterladen</button>
+        <button id="btnMergePrintZpl" data-i18n="Direkt drucken…">Direkt drucken…</button>
+      </div>
+      <p class="hint" data-i18n-html="hint.merge-backend-print">Mit einem konfigurierten ZPL-Backend öffnet &bdquo;Direkt drucken&ldquo; die sichere Backend-Druckauswahl und sendet den Seriendruck direkt an den gewählten Zebra-Drucker. Ohne Backend öffnet es den Systemdruckdialog. Das funktioniert nur zuverlässig, wenn der Drucker für die unveränderte Weitergabe von ZPL eingerichtet ist; andernfalls wird der ZPL-Code als Text ausgedruckt statt vom Drucker interpretiert.</p>
+
+      <div class="section-title" data-i18n="Ausgabe: A4-Bogen (normaler Drucker)">Ausgabe: A4-Bogen (normaler Drucker)</div>
+      <div class="field-row">
+        <label for="mergeSheetPreset" data-i18n="Etikettenbogen">Etikettenbogen</label>
+        <select id="mergeSheetPreset"></select>
+      </div>
+      <div id="mergeCustomSheetFields" class="hidden"></div>
+      <div class="btn-row">
+        <button id="btnMergePrintSheet" data-i18n="A4-Bogen drucken / als PDF speichern…">A4-Bogen drucken / als PDF speichern…</button>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="tab-history" role="tabpanel">
+      <p class="hint">Die letzten <span id="historyCount">100</span> Änderungen. Klicke auf einen Eintrag, um zu diesem Zeitpunkt zu springen. Über das Kästchen kannst du eine einzelne Änderung ein- oder ausschließen, ohne spätere Änderungen zu verlieren.</p>
+      <ul id="historyList" class="history-list"></ul>
+    </div>
+  </aside>
+</div>
+
+<div id="modalOverlay" class="modal-overlay hidden">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-header">
+      <span id="modalTitle">Vorschau</span>
+      <button id="modalClose" aria-label="Schließen" data-i18n-aria-label="Schließen">&times;</button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+
+<ul id="canvasContextMenu" class="context-menu hidden" role="menu"></ul>
+
+<script src="../zplkit/inflate.js"></script>
+<script src="../zplkit/gfa-codec.js"></script>
+<script src="../zplkit/image-mono.js"></script>
+<script src="../zplkit/barcodes.js"></script>
+<script src="../zplkit/zpl-model.js"></script>
+<script src="../zplkit/zpl-parser.js"></script>
+<script src="../zplkit/zpl-generator.js"></script>
+<script src="../zplkit/zpl-diff.js"></script>
+<script src="../zplkit/zpl-glossary.js"></script>
+<script src="../zplkit/csv-parser.js"></script>
+<script src="../zplkit/xlsx-parser.js"></script>
+<script src="../zplkit/label-sheets.js"></script>
+<script src="../zplkit/zpl-render.js"></script>
+<script src="../zplkit/pdf-writer.js"></script>
+<script src="../zplkit/gif-writer.js"></script>
+<script src="i18n.js"></script>
+<script src="../zplkit/backend-client.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

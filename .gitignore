@@ -1,0 +1,31 @@
+# Local system/editor state
+.DS_Store
+.claude/
+.trash/
+
+# Local label files may contain real business data; never publish them.
+# They are development material, not part of the public repository.
+labels/
+*.zpl
+*.300zpl
+*.200zpl
+*.prn
+
+# Compiled output of the root Go server - build it yourself with `go build`.
+/zpl-studio-server
+/zpl-studio-server.exe
+/server.log
+
+# Runtime-only printer configuration and templates may contain internal
+# network details or label data and must never enter the public Pages tree.
+/config/printers.csv
+/templates/
+
+# Local secrets and generated development artefacts.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+node_modules/
+coverage/

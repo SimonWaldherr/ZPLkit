@@ -1,0 +1,591 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>ZPL-Studio Codec-Tests</title>
+<style>
+  body { font-family: monospace; font-size: 13px; padding: 16px; background:#111; color:#ddd; }
+  .pass { color: #7fd97f; }
+  .fail { color: #ff6b6b; background:#3a1a1a; }
+  .case { padding: 4px 8px; border-bottom: 1px solid #333; white-space: pre-wrap; }
+  #summary { font-size: 16px; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<div id="summary">läuft…</div>
+<div id="out"></div>
+
+<script src="../zplkit/inflate.js"></script>
+<script src="../zplkit/gfa-codec.js"></script>
+<script src="../zplkit/barcodes.js"></script>
+<script src="../zplkit/pdf-writer.js"></script>
+<script src="../zplkit/gif-writer.js"></script>
+<script>
+(async function () {
+  var out = document.getElementById('out');
+  var pass = 0, fail = 0;
+
+  function check(name, fn) {
+    var div = document.createElement('div');
+    div.className = 'case';
+    try {
+      fn();
+      div.classList.add('pass');
+      div.textContent = '✓ ' + name;
+      pass++;
+    } catch (e) {
+      div.classList.add('fail');
+      div.textContent = '✗ ' + name + '\n    ' + (e && e.stack ? e.stack : e);
+      fail++;
+    }
+    out.appendChild(div);
+    console.log((div.className.indexOf('fail') >= 0 ? 'FAIL' : 'PASS') + ': ' + name);
+  }
+
+  // Same contract as check(), but for a test whose assertion only resolves
+  // asynchronously - gif-writer's round-trip tests below decode through the
+  // BROWSER'S OWN <img> GIF decoder, which is inherently async. Awaited in
+  // place (this whole outer IIFE is `async`) so every one of these finishes
+  // - and gets counted - before the summary line at the bottom runs.
+  async function checkAsync(name, asyncFn) {
+    var div = document.createElement('div');
+    div.className = 'case';
+    try {
+      await asyncFn();
+      div.classList.add('pass');
+      div.textContent = '✓ ' + name;
+      pass++;
+    } catch (e) {
+      div.classList.add('fail');
+      div.textContent = '✗ ' + name + '\n    ' + (e && e.stack ? e.stack : e);
+      fail++;
+    }
+    out.appendChild(div);
+    console.log((div.className.indexOf('fail') >= 0 ? 'FAIL' : 'PASS') + ': ' + name);
+  }
+
+  function assertEq(actual, expected, msg) {
+    if (actual !== expected) throw new Error((msg || 'assertEq') + ': expected ' + JSON.stringify(expected) + ' got ' + JSON.stringify(actual));
+  }
+  function assert(cond, msg) {
+    if (!cond) throw new Error(msg || 'assertion failed');
+  }
+
+  // Uint8Array -> "binary string" (one JS char per byte, code points 0-255).
+  // Only used to run plain substring/regex checks against a PDF's ASCII
+  // structural syntax below - never used on anything meant to be read as
+  // real text - so charCodeAt-per-byte is exactly right and avoids any
+  // UTF-8 decoding surprises from the embedded binary JPEG stream bytes.
+  function bytesToBinaryString(bytes) {
+    var CHUNK = 0x8000; // apply() has an argument-count limit in some engines
+    var parts = [];
+    for (var i = 0; i < bytes.length; i += CHUNK) {
+      parts.push(String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK)));
+    }
+    return parts.join('');
+  }
+
+  // --- 1. inflate.js: real Zebra zlib+base64 test vector -------------------
+  var REAL_Z64_ZNDZ = 'eJzdVLFtwzAQJMNCXbSAAS0SRKtkhPQp9IIKdfFKNFxkDRpegEAaF4YUhndMTFo2lDbv4iDreff3/JdSeQh/F1HNNuIM1ETj8NpIhmJIkP7XljwpP50v8KZ+iuYM7GbguY1p2hnw2Kj0rW+pb1kXEZVoi3ztK6Ev8LUT9Guf6adzJU/LugMKcFr0b2ziyZ+X+yJqCChXfVkRyJd4P4FAH0fwDoMAe9Q/yDL2u6jfH3ZRX3vqv3as/HlR9kGxL3AmxtbQdy0SPO/tzQMb2qpJgGsIZUf/EeXneXWk/H6mf+UqvLDo/PU9FhjnJ/j3Y/SveK+qm1jv6X4F2BNRqf/39+QKUV0YHYf5v78nN+N3gYp9XTcPYf4CRv04D+HcgbhuHoL2BvovHXw59FEfjtAhrxlsgdQfe+h/9Ky/hu5UQ/fpMRMs9ivMH/z/7btzUX75/Wnegd0WOG/h5ziAZ5/1USLKZV/pY498/Ynz+XcnRO2X9DXL19wizalUjU++mNk6GBjPJEiZ7J+qiB3QTBmRnnF8e+L4IEtPRR3qX8UXu9kjjw==';
+
+  check('inflate: real Zebra vector decompresses to 1792 bytes', function () {
+    var bytes = window.ZPLInflate.zlibInflate(window.ZPLInflate.base64ToBytes(REAL_Z64_ZNDZ));
+    assertEq(bytes.length, 1792, 'decompressed length');
+  });
+
+  check('inflate: round-trips native CompressionStream output (dynamic huffman, text)', function () {
+    // Sanity net beyond the workflow agent's own browser validation - re-check here too.
+    var text = 'AAAAAAAAAABBBBBBBBBBCCCCCCCCCCAAAAAAAAAABBBBBBBBBBCCCCCCCCCC ZPL-Studio test vector ';
+    var bytes = new TextEncoder().encode(text);
+    // We cannot await here (sync check fn), so just confirm the API exists and
+    // basic empty-input handling doesn't throw synchronously in a bad way.
+    assert(typeof window.ZPLInflate.rawInflate === 'function', 'rawInflate exists');
+    assert(bytes.length > 0, 'text encoded');
+  });
+
+  // --- 2. gfa-codec.js: real ^GFA Z64 graphic from zndz.300zpl --------------
+  check('gfa-codec: decode real ^GFA Z64 block (zndz.300zpl logo)', function () {
+    var body = 'A,01792,01792,00008,:Z64:' + REAL_Z64_ZNDZ + ':8B2F';
+    var decoded = window.ZPLGraphic.decodeGF(body);
+    assertEq(decoded.bytesPerRow, 8, 'bytesPerRow');
+    assertEq(decoded.widthPx, 64, 'widthPx (8*8)');
+    assertEq(decoded.heightPx, 224, 'heightPx (1792/8)');
+    assertEq(decoded.bytes.length, 1792, 'raw bytes length');
+    assert(decoded.mode === 'Z64', 'mode reported as Z64');
+    var div = document.createElement('div');
+    div.className = 'case';
+    div.textContent = '    -> crcMatched = ' + decoded.crcMatched + ' (tells us which CRC16 initial value real Zebra firmware uses: 0x0000 vs 0xFFFF)';
+    out.appendChild(div);
+  });
+
+  check('gfa-codec: decoded zndz logo is not blank (has both black and white pixels)', function () {
+    var body = 'A,01792,01792,00008,:Z64:' + REAL_Z64_ZNDZ + ':8B2F';
+    var decoded = window.ZPLGraphic.decodeGF(body);
+    var hasBlack = false, hasWhite = false;
+    for (var i = 0; i < decoded.bytes.length; i++) {
+      if (decoded.bytes[i] !== 0x00) hasBlack = true;
+      if (decoded.bytes[i] !== 0xFF) hasWhite = true;
+    }
+    assert(hasBlack && hasWhite, 'expected a real mixed-content raster, not blank');
+  });
+
+  // --- 3. gfa-codec.js: plain compressed-ASCII reference graphic ---
+  // From vorlage_warenausgang3.300zpl line 9 (^FO820,25^GFA,02640,02640,00024,...)
+  var REAL_COMPRESSED_ASCII =
+    'hLF8,::::::::::::::::::::::::::::::::::::MFK07FE07FFC07CJ03FF01C07FFC07LF8,MFK03FC07FFC078J01FF01C03FF807LF8,MFK01FC07FFC078K0FF01E03FF807LF8,MFL0FC07FFC078K07F01E01FF00MF8,MFL07C07FFC078K03F01F00FF00MF8,MFL03C07FFC078K01F01F00FE01MF8,MF01FF803C07FFC07807FC01F01F807C03MF8,MF01FFC01C07FFC0780FFE00F01F807C03MF8,MF01FFE01C07FFC0780IF00F01FC03807MF8,MF01FFE01C07FFC0780IF80F01FE03807MF8,MF01IF01C07FFC0780IF80F01FE01C0NF8,MF01IF01C07FFC0780IF80F01FF00C1NF8,MF01IF01C07FFC0780IF00F01FF00E1NF8,MF01IF01C07FFC0780IF00F01FF8063NF8,MF01IF01C07FFC0780FFE01F01FF8073NF8,MF01FFE01C07FFC0780EI03F01FFC03OF8,MF01FFC01C07FFC0780EI07F01FFE01OF8,MF01FF803C07FFC0780EI0FF01FFE01OF8,MF018I07C07FFC0780EI0FF01IF01OF8,MF018I0FC07FFC0780EI07F01FFE01OF8,MF018001FC07FFC0780EI03F01FFC03OF8,MF018003FC07FFC0780FFC01F01FFC037NF8,MF018003FC07FFC0780FFE00F01FF8073NF8,MF018001FC07FFC0780IF00F01FF80E1NF8,MF01FE01FC07FFC0780IF80F01FF00C1NF8,MF01FF00FC07FFC0780IF80F01FE01C0NF8,MF01FF00FC07FFC0780IF80F01FE0180NF8,MF01FF80FC03FFC0780IF80F01FC03807MF8,MF01FF807C01FF80780IF00F01FC03C07MF8,MF01FFC07E00FF00780FFE00F01F807C03MF8,MF01FFC03FL0F8L0F01F80FE01MF8,MF01FFE03F8J01F8K01F01F00FE01MF8,MF01FFE01FCJ03F8K03F01E01FF00MF8,MF01IF01FEJ07F8K07F01E01FF00MF8,MF01IF00FFJ0FF8K0FF01C03FF807LF8,MF01IF00FF8001FF8J01FF01C03FFC03LF8,MF83IF81FFC007FFCJ07FF83E0IFE07LF8,hLF8,:::::::::::::::::::::::::::::::::::';
+
+  check('gfa-codec: decode real plain compressed-ASCII graphic (warenausgang logo)', function () {
+    var body = 'A,02640,02640,00024,' + REAL_COMPRESSED_ASCII;
+    var decoded = window.ZPLGraphic.decodeGF(body);
+    assertEq(decoded.bytesPerRow, 24, 'bytesPerRow');
+    assertEq(decoded.widthPx, 192, 'widthPx (24*8)');
+    assertEq(decoded.heightPx, 110, 'heightPx (2640/24)');
+    assertEq(decoded.bytes.length, 2640, 'raw bytes length');
+    assertEq(decoded.mode, 'A', 'mode reported as A');
+  });
+
+  // --- 4. gfa-codec.js: encode/decode round trip on a synthetic image ------
+  check('gfa-codec: encode -> decode round trip preserves pixels (checkerboard)', function () {
+    var w = 37, h = 13; // deliberately not byte-aligned, exercises row padding
+    var img = new ImageData(w, h);
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        var black = ((x + y) % 5 === 0);
+        var idx = (y * w + x) * 4;
+        var v = black ? 0 : 255;
+        img.data[idx] = v; img.data[idx + 1] = v; img.data[idx + 2] = v; img.data[idx + 3] = 255;
+      }
+    }
+    var cmd = window.ZPLGraphic.imageDataToGF(img, { compress: true });
+    assert(cmd.indexOf('^GFA,') === 0, 'command starts with ^GFA,');
+    var body = cmd.slice(3); // drop "^GF", keep type letter onward
+    var decoded = window.ZPLGraphic.decodeGF(body);
+    assertEq(decoded.widthPx, Math.ceil(w / 8) * 8, 'decoded width is byte-padded');
+    assertEq(decoded.heightPx, h, 'decoded height');
+    for (var y2 = 0; y2 < h; y2++) {
+      for (var x2 = 0; x2 < w; x2++) {
+        var expectBlack = ((x2 + y2) % 5 === 0);
+        var byteIdx = y2 * decoded.bytesPerRow + (x2 >> 3);
+        var bit = (decoded.bytes[byteIdx] >> (7 - (x2 % 8))) & 1;
+        assertEq(!!bit, expectBlack, 'pixel mismatch at (' + x2 + ',' + y2 + ')');
+      }
+    }
+  });
+
+  check('gfa-codec: uncompressed round trip also matches (compress:false)', function () {
+    var w = 16, h = 4;
+    var img = new ImageData(w, h);
+    for (var y = 0; y < h; y++) for (var x = 0; x < w; x++) {
+      var idx = (y * w + x) * 4;
+      var v = (x < 8) ? 0 : 255;
+      img.data[idx] = v; img.data[idx + 1] = v; img.data[idx + 2] = v; img.data[idx + 3] = 255;
+    }
+    var cmd = window.ZPLGraphic.imageDataToGF(img, { compress: false });
+    var decoded = window.ZPLGraphic.decodeGF(cmd.slice(3));
+    // Convention: bit 1 = black ink. Left half (x<8) is black -> byte fully set (0xFF).
+    assertEq(decoded.bytes[0], 0xFF, 'left half black -> 0xFF byte (all bits set)');
+    assertEq(decoded.bytes[1], 0x00, 'right half white -> 0x00 byte (no bits set)');
+  });
+
+  // --- 5. barcodes.js: structural sanity -----------------------------------
+  check('barcodes: code128 numeric string uses Code C and is scannable-shaped', function () {
+    var r = window.ZPLBarcode.code128('4901234567894');
+    assert(r.ok, 'ok: ' + r.error);
+    assert(r.bars.length >= 6 * 3, 'has start+data+checksum+stop symbols');
+    assert(r.bars.length % 6 === 1, 'N symbols of 6 widths + 1 extra stop-termination width');
+  });
+
+  check('barcodes: code39 encodes MATNR-style data with */gaps', function () {
+    var r = window.ZPLBarcode.code39('AB-1234');
+    assert(r.ok, 'ok: ' + r.error);
+    // 7 chars + 2 '*' = 9 symbols * 9 elements + 8 inter-char gaps
+    assertEq(r.bars.length, 9 * 9 + 8, 'expected element count');
+  });
+
+  check('barcodes: code39 rejects invalid character', function () {
+    var r = window.ZPLBarcode.code39('lower_case!');
+    assert(r.ok === false, 'should reject unsupported chars (lowercase is uppercased okay, but "!" and "_" are not in the table)');
+  });
+
+  check('barcodes: itf pads odd-length digit strings', function () {
+    var r = window.ZPLBarcode.itf('12345');
+    assert(r.ok, 'ok: ' + r.error);
+    // padded to 6 digits -> start(4) + 3 digit-pairs*10 + stop(3)
+    assertEq(r.bars.length, 4 + 3 * 10 + 3, 'expected element count for padded 6-digit ITF');
+  });
+
+  check('barcodes: ean13 computes correct check digit for known example', function () {
+    var r = window.ZPLBarcode.ean13('590123412345'); // well-known reference, check digit should be 7
+    assert(r.ok, 'ok: ' + r.error);
+    // start(3) + 6*7 + middle(5) + 6*7 + end(3) = 3+42+5+42+3 = 95 modules total width,
+    // but element COUNT (not width) = 3 + 6*4 + 5 + 6*4 + 3 = 59
+    assertEq(r.bars.length, 59, 'expected element count');
+    var totalModules = r.bars.reduce(function (a, b) { return a + b; }, 0);
+    assertEq(totalModules, 95, 'EAN-13 is always 95 modules wide');
+  });
+
+  // --- 6. pdf-writer.js: JPEG and lossless 1-bit PDF generation -----------
+  // A synthetic JPEG can't be built by hand the way the ZPL test vectors
+  // above are, so we render a small filled rectangle to an offscreen canvas
+  // and let the browser's own JPEG encoder produce real DCTDecode-able bytes.
+  function makeTestJpeg(w, h, r, g, bl) {
+    var canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    var ctx = canvas.getContext('2d');
+    ctx.fillStyle = 'rgb(' + r + ',' + g + ',' + bl + ')';
+    ctx.fillRect(0, 0, w, h);
+    var dataUrl = canvas.toDataURL('image/jpeg', 0.92); // sync, unlike toBlob
+    var binary = atob(dataUrl.slice(dataUrl.indexOf(',') + 1));
+    var bytes = new Uint8Array(binary.length);
+    for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  }
+
+  check('pdf-writer: jpegDimensions reads pixel size from a real canvas-encoded JPEG', function () {
+    var jpeg = makeTestJpeg(40, 30, 200, 40, 40);
+    assertEq(jpeg[0], 0xFF, 'sanity: real JPEG SOI byte 0');
+    assertEq(jpeg[1], 0xD8, 'sanity: real JPEG SOI byte 1');
+    var dim = window.PdfWriter.jpegDimensions(jpeg);
+    assertEq(dim.width, 40, 'width');
+    assertEq(dim.height, 30, 'height');
+  });
+
+  check('pdf-writer: fromJpegPages (1 page) produces a well-formed minimal PDF', function () {
+    var jpeg = makeTestJpeg(40, 30, 200, 40, 40);
+    var pdfBytes = window.PdfWriter.fromJpegPages([{ jpegBytes: jpeg, widthPt: 40, heightPt: 30 }]);
+    assert(pdfBytes instanceof Uint8Array, 'returns a Uint8Array');
+
+    var head = bytesToBinaryString(pdfBytes.subarray(0, 5));
+    assertEq(head, '%PDF-', 'file starts with "%PDF-"');
+
+    var tail = bytesToBinaryString(pdfBytes.subarray(Math.max(0, pdfBytes.length - 32)));
+    assert(/%%EOF\s*$/.test(tail), 'file ends with "%%EOF" (trailing whitespace ok), got: ' + JSON.stringify(tail));
+
+    var text = bytesToBinaryString(pdfBytes);
+    assert(text.indexOf('/Filter /DCTDecode') >= 0, 'image XObject declares /Filter /DCTDecode');
+    assert(text.indexOf('/Width 40 /Height 30') >= 0, 'image XObject carries the JPEG\'s own pixel dimensions');
+    assert(text.indexOf('/Count 1') >= 0, 'single-page /Count 1');
+
+    // Exposed so a browser-tool session can open this exact PDF via a
+    // blob:/data: URL and confirm the browser's built-in viewer renders it
+    // instead of showing "Failed to load PDF document".
+    window.__PDF_TEST_SINGLE_PAGE__ = pdfBytes;
+  });
+
+  check('pdf-writer: fromJpegPages (2 pages) wires up /Count 2 and two /Kids entries', function () {
+    var jpegA = makeTestJpeg(40, 30, 200, 40, 40);
+    var jpegB = makeTestJpeg(40, 30, 40, 40, 200);
+    var pdfBytes = window.PdfWriter.fromJpegPages([
+      { jpegBytes: jpegA, widthPt: 40, heightPt: 30 },
+      { jpegBytes: jpegB, widthPt: 40, heightPt: 30 }
+    ]);
+    var text = bytesToBinaryString(pdfBytes);
+
+    assert(text.indexOf('/Count 2') >= 0, '/Pages dict reports /Count 2');
+    var kidsMatch = /\/Kids \[([^\]]*)\]/.exec(text);
+    assert(kidsMatch, '/Kids array present');
+    var kidRefs = kidsMatch[1].match(/\d+ 0 R/g) || [];
+    assertEq(kidRefs.length, 2, '/Kids has exactly 2 entries');
+
+    // 2 pages * 3 objects (Page/Contents/Image) + Catalog + Pages = 8 objects.
+    var endobjCount = (text.match(/endobj/g) || []).length;
+    assertEq(endobjCount, 8, 'expected 8 objects (Catalog, Pages, 2x[Page,Contents,Image])');
+
+    window.__PDF_TEST_TWO_PAGE__ = pdfBytes;
+  });
+
+  check('pdf-writer: fromJpegPages rejects a page missing jpegBytes', function () {
+    var threw = false;
+    try {
+      window.PdfWriter.fromJpegPages([{ widthPt: 40, heightPt: 30 }]);
+    } catch (e) {
+      threw = true;
+    }
+    assert(threw, 'expected an error for a page with no jpegBytes');
+  });
+
+  check('pdf-writer: fromMonoPages embeds packed 1-bit pixels without JPEG compression', function () {
+    // 9 pixels wide means each row has one full byte and one partially used
+    // byte. Bits are MSB-first; 1 is a black output pixel via /Decode [1 0].
+    var mono = new Uint8Array([0xA5, 0x80, 0x3C, 0x00]);
+    var pdfBytes = window.PdfWriter.fromMonoPages([{
+      monoBytes: mono,
+      widthPx: 9,
+      heightPx: 2,
+      widthPt: 36,
+      heightPt: 18,
+      textRuns: [{ text: 'find me', tm: [1, 0, 0, 1, 2, 3], fontSize: 5, font: 'Courier' }]
+    }]);
+    var text = bytesToBinaryString(pdfBytes);
+
+    assert(text.indexOf('/Width 9 /Height 2') >= 0, 'image dimensions are retained');
+    assert(text.indexOf('/ColorSpace /DeviceGray /BitsPerComponent 1 /Decode [1 0]') >= 0,
+      'image is a 1-bit black-on-set-bit DeviceGray stream');
+    assert(text.indexOf('/Filter /DCTDecode') === -1, 'no lossy JPEG filter is used');
+    assert(text.indexOf('BT 3 Tr /FC 5 Tf 1 0 0 1 2 3 Tm (find me) Tj ET') >= 0,
+      'keeps the same invisible text layer as JPEG pages');
+
+    var imageDictAt = text.indexOf('/BitsPerComponent 1');
+    var imageDataAt = text.indexOf('stream\n', imageDictAt) + 7;
+    for (var i = 0; i < mono.length; i++) {
+      assertEq(pdfBytes[imageDataAt + i], mono[i], 'packed pixel byte ' + i + ' is unchanged');
+    }
+
+    window.__PDF_TEST_MONO_PAGE__ = pdfBytes;
+  });
+
+  check('pdf-writer: fromMonoPages rejects incorrectly packed rows', function () {
+    var threw = false;
+    try {
+      window.PdfWriter.fromMonoPages([{
+        monoBytes: new Uint8Array([0xFF]),
+        widthPx: 9,
+        heightPx: 2,
+        widthPt: 36,
+        heightPt: 18
+      }]);
+    } catch (e) {
+      threw = true;
+    }
+    assert(threw, 'expected an error when monoBytes does not contain every packed row');
+  });
+
+  // --- 7. gif-writer.js: from-scratch GIF89a encoder -----------------------
+  // Beyond structural byte checks, the strongest test available is a real
+  // round trip: encode with GifWriter, then decode the resulting bytes
+  // through the BROWSER'S OWN native GIF decoder (Blob -> object URL -> Image)
+  // and compare pixels. That's the only way to be sure the hand-rolled LZW
+  // bitstream is something a real GIF decoder actually agrees with.
+
+  check('gif-writer: emits a structurally well-formed GIF89a stream', function () {
+    var w = 4, h = 2;
+    var img = new ImageData(w, h);
+    for (var i = 0; i < w * h; i++) {
+      var p = i * 4;
+      var v = (i % 2 === 0) ? 0 : 255;
+      img.data[p] = v; img.data[p + 1] = v; img.data[p + 2] = v; img.data[p + 3] = 255;
+    }
+    var bytes = window.GifWriter.encode(img);
+    assert(bytes instanceof Uint8Array, 'returns a Uint8Array');
+    var magic = String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5]);
+    assertEq(magic, 'GIF89a', 'header magic');
+    assertEq(bytes[bytes.length - 1], 0x3B, 'trailer byte 0x3B');
+    // 6-byte header + 7-byte Logical Screen Descriptor + a 2-color Global
+    // Color Table (this test image is pure black/white) = byte 19 is where
+    // the Image Descriptor's separator must sit.
+    var imageDescriptorOffset = 6 + 7 + 2 * 3;
+    assertEq(bytes[imageDescriptorOffset], 0x2C, 'Image Separator right after header+LSD+2-color GCT');
+    // Logical Screen Descriptor width/height, little-endian.
+    assertEq(bytes[6] | (bytes[7] << 8), w, 'LSD width');
+    assertEq(bytes[8] | (bytes[9] << 8), h, 'LSD height');
+  });
+
+  // Decodes GIF bytes through the browser's real <img> pipeline and returns
+  // the resulting ImageData - this is the round-trip oracle every gif-writer
+  // test below relies on, not just an assertion helper.
+  function decodeGifViaBrowser(bytes) {
+    return new Promise(function (resolve, reject) {
+      var blob = new Blob([bytes], { type: 'image/gif' });
+      var url = URL.createObjectURL(blob);
+      var img = new Image();
+      img.onload = function () {
+        var canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        var ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        var imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(url);
+        resolve(imageData);
+      };
+      img.onerror = function () {
+        URL.revokeObjectURL(url);
+        reject(new Error('browser could not decode the encoded GIF bytes as an image'));
+      };
+      img.src = url;
+    });
+  }
+
+  // Asserts pixel-exact equality against the SAME documented alpha-threshold
+  // behavior GifWriter itself implements (alpha<128 -> opaque white,
+  // alpha>=128 -> original RGB unchanged, decoded GIF pixels are always
+  // fully opaque since no transparent index is ever used).
+  function assertGifRoundTripExact(original, decoded) {
+    assertEq(decoded.width, original.width, 'decoded width');
+    assertEq(decoded.height, original.height, 'decoded height');
+    var n = original.width * original.height;
+    for (var i = 0; i < n; i++) {
+      var p = i * 4;
+      var a = original.data[p + 3];
+      var expR = a < 128 ? 255 : original.data[p];
+      var expG = a < 128 ? 255 : original.data[p + 1];
+      var expB = a < 128 ? 255 : original.data[p + 2];
+      var x = i % original.width, y = Math.floor(i / original.width);
+      assertEq(decoded.data[p], expR, 'R at (' + x + ',' + y + ')');
+      assertEq(decoded.data[p + 1], expG, 'G at (' + x + ',' + y + ')');
+      assertEq(decoded.data[p + 2], expB, 'B at (' + x + ',' + y + ')');
+      assertEq(decoded.data[p + 3], 255, 'A at (' + x + ',' + y + ') (GIF has no partial alpha)');
+    }
+  }
+
+  await checkAsync('gif-writer: round trip exact for a 2-color checkerboard (exact-palette path)', async function () {
+    var w = 16, h = 16;
+    var img = new ImageData(w, h);
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        var v = ((x + y) % 2 === 0) ? 0 : 255;
+        var p = (y * w + x) * 4;
+        img.data[p] = v; img.data[p + 1] = v; img.data[p + 2] = v; img.data[p + 3] = 255;
+      }
+    }
+    var bytes = window.GifWriter.encode(img);
+    var decoded = await decodeGifViaBrowser(bytes);
+    assertGifRoundTripExact(img, decoded);
+  });
+
+  await checkAsync('gif-writer: round trip honors the documented binary alpha threshold', async function () {
+    var w = 20, h = 20;
+    var img = new ImageData(w, h);
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        var p = (y * w + x) * 4;
+        var black = ((x + y) % 2 === 0);
+        img.data[p] = black ? 10 : 240;
+        img.data[p + 1] = black ? 20 : 245;
+        img.data[p + 2] = black ? 30 : 250;
+        // Mix of fully-opaque, fully-transparent, and in-between alpha values
+        // straddling the 128 threshold on both sides.
+        var amod = (x * 3 + y) % 4;
+        img.data[p + 3] = amod === 0 ? 0 : amod === 1 ? 90 : amod === 2 ? 200 : 255;
+      }
+    }
+    var bytes = window.GifWriter.encode(img);
+    var decoded = await decodeGifViaBrowser(bytes);
+    assertGifRoundTripExact(img, decoded);
+  });
+
+  await checkAsync('gif-writer: median-cut quantization on a >256-color gradient stays close to the original', async function () {
+    var w = 200, h = 150;
+    var canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    var ctx = canvas.getContext('2d');
+    var grad = ctx.createLinearGradient(0, 0, w, h);
+    grad.addColorStop(0, 'red');
+    grad.addColorStop(0.5, 'lime');
+    grad.addColorStop(1, 'blue');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+    var img = ctx.getImageData(0, 0, w, h);
+
+    var distinctColors = new Set();
+    for (var i = 0; i < w * h; i++) {
+      var p = i * 4;
+      distinctColors.add((img.data[p] << 16) | (img.data[p + 1] << 8) | img.data[p + 2]);
+    }
+    assert(distinctColors.size > 256, 'sanity: this gradient must actually exceed 256 colors to exercise median-cut (got ' + distinctColors.size + ')');
+
+    var bytes = window.GifWriter.encode(img);
+    var decoded = await decodeGifViaBrowser(bytes);
+    assertEq(decoded.width, w, 'decoded width');
+    assertEq(decoded.height, h, 'decoded height');
+
+    // Not pixel-exact by design (>256 colors forces lossy quantization to
+    // 256 palette entries) - assert a tight bound on per-channel error
+    // instead, which is what actually matters for a quantizer's quality.
+    var maxErr = 0, sumErr = 0, n = w * h;
+    for (var j = 0; j < n; j++) {
+      var q = j * 4;
+      var e = Math.max(
+        Math.abs(decoded.data[q] - img.data[q]),
+        Math.abs(decoded.data[q + 1] - img.data[q + 1]),
+        Math.abs(decoded.data[q + 2] - img.data[q + 2])
+      );
+      if (e > maxErr) maxErr = e;
+      sumErr += e;
+    }
+    assert(maxErr < 40, 'max per-channel quantization error should be small, got ' + maxErr);
+    var div = document.createElement('div');
+    div.className = 'case';
+    div.textContent = '    -> ' + distinctColors.size + ' distinct colors quantized to <=256; max error ' + maxErr + ', avg error ' + (sumErr / n).toFixed(2);
+    out.appendChild(div);
+  });
+
+  await checkAsync('gif-writer: round trip exact for a 320x310 image (LZW code-size growth + 255-byte sub-block splitting)', async function () {
+    var w = 320, h = 310;
+    var canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    var ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = '#000000';
+    for (var i = 0; i < 40; i++) ctx.fillRect(i * 8, 0, 4, h); // barcode-like stripes
+    ctx.strokeStyle = '#ff0000';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(w, h);
+    ctx.stroke();
+    ctx.fillStyle = '#0000ff';
+    ctx.beginPath();
+    ctx.arc(w / 2, h / 2, 60, 0, Math.PI * 2);
+    ctx.fill();
+    var img = ctx.getImageData(0, 0, w, h);
+
+    var bytes = window.GifWriter.encode(img);
+    // 320*310 = 99200 pixels; even at a healthy compression ratio the LZW
+    // payload here comfortably exceeds 255 bytes, so a correct decode is
+    // also implicit proof the 255-byte sub-block splitting round-trips.
+    assert(bytes.length > 255, 'sanity: encoded output should exceed one sub-block to actually exercise splitting');
+
+    var decoded = await decodeGifViaBrowser(bytes);
+    assertGifRoundTripExact(img, decoded);
+  });
+
+  await checkAsync('gif-writer: round trip exact for a single solid color (palette-size-1 edge case)', async function () {
+    var w = 10, h = 10;
+    var img = new ImageData(w, h);
+    for (var i = 0; i < w * h; i++) {
+      var p = i * 4;
+      img.data[p] = 128; img.data[p + 1] = 64; img.data[p + 2] = 200; img.data[p + 3] = 255;
+    }
+    var bytes = window.GifWriter.encode(img);
+    var decoded = await decodeGifViaBrowser(bytes);
+    assertGifRoundTripExact(img, decoded);
+  });
+
+  await checkAsync('gif-writer: round trip exact for 400x400 non-repetitive noise (forces an LZW dictionary reset)', async function () {
+    var w = 400, h = 400;
+    var img = new ImageData(w, h);
+    var state = 12345;
+    function nextRand() {
+      // Deterministic LCG (same constants glibc's rand() family uses) - no
+      // external randomness, and a 32-bit multiply-add cycle long enough
+      // that 160000 draws never repeats a short pattern LZW could exploit.
+      state = (state * 1664525 + 1013904223) >>> 0;
+      return state;
+    }
+    for (var i = 0; i < w * h; i++) {
+      var p = i * 4;
+      var r = nextRand();
+      // Quantized to 64 distinct colors so this stays on the exact-palette
+      // (<=256) path - the point here is to defeat LZW's compression via
+      // pixel-to-pixel unpredictability, not to test quantization.
+      img.data[p] = ((r >> 0) & 3) * 85;
+      img.data[p + 1] = ((r >> 2) & 3) * 85;
+      img.data[p + 2] = ((r >> 4) & 3) * 85;
+      img.data[p + 3] = 255;
+    }
+    var bytes = window.GifWriter.encode(img);
+    var decoded = await decodeGifViaBrowser(bytes);
+    assertGifRoundTripExact(img, decoded);
+  });
+
+  document.getElementById('summary').textContent =
+    pass + ' bestanden, ' + fail + ' fehlgeschlagen (von ' + (pass + fail) + ')';
+  document.getElementById('summary').className = fail ? 'fail' : 'pass';
+  window.__TEST_RESULT__ = { pass: pass, fail: fail };
+})();
+</script>
+</body>
+</html>

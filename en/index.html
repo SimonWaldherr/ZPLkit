@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ZPL-Studio is the browser-based editor for Zebra labels: design visually, understand ZPL and reliably output labels.">
+  <meta name="language" content="en">
+  <meta name="theme-color" content="#061b4a">
+  <link rel="canonical" href="https://simonwaldherr.github.io/ZPLkit/en/">
+  <link rel="alternate" hreflang="de" href="https://simonwaldherr.github.io/ZPLkit/">
+  <link rel="alternate" hreflang="en" href="https://simonwaldherr.github.io/ZPLkit/en/">
+  <link rel="alternate" hreflang="fr" href="https://simonwaldherr.github.io/ZPLkit/fr/">
+  <link rel="alternate" hreflang="x-default" href="https://simonwaldherr.github.io/ZPLkit/">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://simonwaldherr.github.io/ZPLkit/en/">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:locale:alternate" content="de_DE">
+  <meta property="og:locale:alternate" content="fr_FR">
+  <meta property="og:title" content="ZPL-Studio – Design labels. Understand ZPL.">
+  <meta property="og:description" content="The browser-based editor for Zebra labels, batch printing, and existing ZPL templates.">
+  <meta property="og:image" content="https://simonwaldherr.github.io/ZPLkit/og-zpl-studio.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="ZPL-Studio – Design labels. Understand ZPL.">
+  <meta name="twitter:description" content="The browser-based editor for Zebra labels, batch printing, and existing ZPL templates.">
+  <meta name="twitter:image" content="https://simonwaldherr.github.io/ZPLkit/og-zpl-studio.png">
+  <title>ZPL-Studio – Design labels. Understand ZPL.</title>
+  <link rel="icon" type="image/svg+xml" href="../favicon.svg">
+  <link rel="stylesheet" href="../css/landing.css">
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to content</a>
+
+  <header class="site-header">
+    <a class="brand" href="./" aria-label="ZPL-Studio home">
+      <img src="../favicon.svg" width="32" height="32" alt="">
+      <span>ZPL-Studio</span>
+    </a>
+    <nav class="site-nav" aria-label="Site navigation">
+      <a href="#features">Features</a>
+      <a href="#workflow">Workflow</a>
+      <a href="#zpl">ZPL under control</a>
+    </nav>
+    <nav class="locale-switcher" aria-label="Language">
+      <a href="../" lang="de" hreflang="de" aria-label="Deutsch">DE</a>
+      <a href="./" lang="en" hreflang="en" aria-current="page" aria-label="English">EN</a>
+      <a href="../fr/" lang="fr" hreflang="fr" aria-label="Français">FR</a>
+    </nav>
+    <a class="button button-small button-primary" href="../studio/?lang=en">Open studio <span aria-hidden="true">→</span></a>
+  </header>
+
+  <main id="content">
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-orbit hero-orbit-one" aria-hidden="true"></div>
+      <div class="hero-orbit hero-orbit-two" aria-hidden="true"></div>
+      <div class="hero-grid" aria-hidden="true"></div>
+      <div class="hero-copy">
+        <p class="eyebrow"><span></span> For Zebra-compatible labels</p>
+        <h1 id="hero-title">Labels that fit the <em>process</em>.</h1>
+        <p class="hero-lead">ZPL-Studio combines a visual editor with real ZPL: open templates, design precisely, verify and reuse them directly.</p>
+        <div class="hero-actions">
+          <a class="button button-primary button-large" href="../studio/?lang=en">Design a label now <span aria-hidden="true">→</span></a>
+          <a class="text-link" href="#features">How it works <span aria-hidden="true">↓</span></a>
+        </div>
+        <ul class="hero-facts">
+          <li>
+            <strong>Browser-based</strong>
+            <span>Start without installation</span>
+          </li>
+          <li>
+            <strong>Native ZPL</strong>
+            <span>Your templates stay yours</span>
+          </li>
+          <li>
+            <strong>For batches</strong>
+            <span>CSV, XLSX &amp; placeholders</span>
+          </li>
+        </ul>
+      </div>
+
+      <div class="hero-stage" role="img" aria-label="Preview of ZPL-Studio with a sample goods-out label">
+        <div class="stage-shadow" aria-hidden="true"></div>
+        <div class="editor-window">
+          <div class="window-bar">
+            <div class="window-brand"><i aria-hidden="true"></i>ZPL-Studio</div>
+            <div class="window-actions" aria-hidden="true"><b></b><b></b><b></b></div>
+          </div>
+          <div class="editor-body">
+            <div class="tool-rail" aria-hidden="true">
+              <span class="tool-active"></span><span></span><span></span><span></span><span></span>
+            </div>
+            <div class="canvas-area">
+              <div class="canvas-status"><span class="status-dot"></span> Live preview</div>
+              <div class="label-card">
+                <div class="label-topline">
+                  <span>ZPL WORKFLOW</span>
+                  <strong>WA-24</strong>
+                </div>
+                <p class="label-kicker">GOODS OUT</p>
+                <p class="label-product">Kugellager 6205-2RSH</p>
+                <div class="label-meta"><span>ITEM NO. 447189</span><span>QTY 24 PCS</span></div>
+                <div class="barcode" aria-hidden="true"></div>
+                <div class="barcode-number">4 021234 567890</div>
+                <div class="label-footer"><span>DOCK 3 · 08:15</span><span>300 DPI</span></div>
+              </div>
+              <div class="selection-box" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+            </div>
+            <div class="properties" aria-hidden="true">
+              <div class="properties-title">Properties</div>
+              <div class="property-line property-line-wide"></div>
+              <div class="property-line"></div>
+              <div class="property-line"></div>
+              <div class="property-pair"><span></span><span></span></div>
+              <div class="property-line property-line-short"></div>
+              <div class="code-snippet"><span>^FO</span> 38,42<br><span>^FD</span> $MATERIAL$<br><span>^FS</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="floating-tag tag-code"><span>^XA</span> ZPL live</div>
+        <div class="floating-tag tag-ready"><i></i> Ready to print</div>
+      </div>
+    </section>
+
+    <section class="trust-strip" aria-label="Key benefits">
+      <p>A tool for everyday work with warehouse, shipping and process labels.</p>
+      <ul>
+        <li><span aria-hidden="true">01</span> Load existing ZPL</li>
+        <li><span aria-hidden="true">02</span> Develop visually</li>
+        <li><span aria-hidden="true">03</span> Output reliably</li>
+      </ul>
+    </section>
+
+    <section class="features section" id="features" aria-labelledby="features-title">
+      <div class="section-heading">
+        <p class="eyebrow eyebrow-dark"><span></span> All in one workflow</p>
+        <h2 id="features-title">From the first field to a print-ready template.</h2>
+        <p>Instead of maintaining ZPL only in a text editor, the label becomes a clear workspace—without losing sight of the code.</p>
+      </div>
+      <div class="feature-grid">
+        <article class="feature-card feature-card-highlight">
+          <div class="feature-icon icon-layout" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+          <p class="feature-number">01</p>
+          <h3>Design precisely</h3>
+          <p>Place, align, group and scale text, barcodes, shapes and graphics directly on the label.</p>
+          <a href="../studio/?lang=en" class="card-link">Try it in the studio <span aria-hidden="true">→</span></a>
+        </article>
+        <article class="feature-card">
+          <div class="feature-icon icon-bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+          <p class="feature-number">02</p>
+          <h3>Barcodes &amp; graphics in context</h3>
+          <p>Code 128, EAN, Data Matrix, and embedded or named graphics stay where they are needed on the label.</p>
+        </article>
+        <article class="feature-card">
+          <div class="feature-icon icon-code" aria-hidden="true"><span>^</span><span>_</span></div>
+          <p class="feature-number">03</p>
+          <h3>Make ZPL understandable</h3>
+          <p>The generated code remains visible live and can be edited directly or shown with explanations when needed.</p>
+        </article>
+        <article class="feature-card">
+          <div class="feature-icon icon-data" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+          <p class="feature-number">04</p>
+          <h3>Variables &amp; batch printing</h3>
+          <p>Validate XML placeholders, import CSV or XLSX data, and create a consistent batch from one template.</p>
+        </article>
+        <article class="feature-card">
+          <div class="feature-icon icon-layers" aria-hidden="true"><i></i><i></i><i></i></div>
+          <p class="feature-number">05</p>
+          <h3>Preserve what exists</h3>
+          <p>Import, compare and export templates again—even when individual ZPL commands cannot be represented visually.</p>
+        </article>
+        <article class="feature-card feature-card-dark">
+          <p class="feature-number">06</p>
+          <h3>Ready for your environment.</h3>
+          <p>Use it as a static site, centrally with a template library, or with an optional Zebra print backend.</p>
+          <a href="../zplkit/examples/library-demo.html" class="card-link card-link-light">Open ZPLkit demo <span aria-hidden="true">→</span></a>
+        </article>
+      </div>
+    </section>
+
+    <section class="workflow section" id="workflow" aria-labelledby="workflow-title">
+      <div class="workflow-intro">
+        <p class="eyebrow eyebrow-dark"><span></span> A clear workflow</p>
+        <h2 id="workflow-title">A label should not remain a mystery.</h2>
+        <p>From existing ZPL code to the finished label, every step uses the same interface.</p>
+        <a class="button button-outline" href="../studio/?lang=en">Start with a template <span aria-hidden="true">→</span></a>
+      </div>
+      <ol class="workflow-steps">
+        <li>
+          <span class="step-count">01</span>
+          <div>
+            <h3>Open</h3>
+            <p>Load an existing ZPL file or start with a base template.</p>
+          </div>
+        </li>
+        <li>
+          <span class="step-count">02</span>
+          <div>
+            <h3>Design</h3>
+            <p>Place elements on the canvas and compare them with the ZPL view.</p>
+          </div>
+        </li>
+        <li>
+          <span class="step-count">03</span>
+          <div>
+            <h3>Output</h3>
+            <p>Export ZPL, share it as an image or PDF, or print through a backend.</p>
+          </div>
+        </li>
+      </ol>
+    </section>
+
+    <section class="zpl-section" id="zpl" aria-labelledby="zpl-title">
+      <div class="zpl-copy">
+        <p class="eyebrow"><span></span> ZPL stays visible</p>
+        <h2 id="zpl-title">Work visually.<br>Stay technically in control.</h2>
+        <p>The editor is not a closed system. The ZPL file remains the result and common ground for your existing processes.</p>
+        <ul class="check-list">
+          <li><span aria-hidden="true">✓</span> Pass through unknown commands without data loss</li>
+          <li><span aria-hidden="true">✓</span> Keep placeholders as real ZPL templates</li>
+          <li><span aria-hidden="true">✓</span> Compare before and after directly</li>
+        </ul>
+      </div>
+      <div class="terminal-card" aria-label="Example of generated ZPL code">
+        <div class="terminal-head"><span></span><span></span><span></span><b>label.zpl</b></div>
+        <pre><code><i>^XA</i>
+<b>^CI28</b>
+<b>^FO38,42</b><strong>^A0N,46,42</strong><span>^FD</span>$MATERIAL$<span>^FS</span>
+<b>^FO38,112</b><strong>^BCN,82,Y,N,N</strong>
+<span>^FD</span>$EAN$<span>^FS</span>
+<b>^FO38,226</b><strong>^A0N,24,22</strong><span>^FD</span>DOCK $DOCK$ · $DATE$<span>^FS</span>
+<i>^XZ</i></code></pre>
+        <div class="terminal-status"><span><i></i> Template in sync</span><span>300 dpi</span></div>
+      </div>
+    </section>
+
+    <section class="cta-section" aria-labelledby="cta-title">
+      <div class="cta-card">
+        <div>
+          <p class="eyebrow"><span></span> Directly in the browser</p>
+          <h2 id="cta-title">The next label starts here.</h2>
+          <p>Open the editor and work with a template, an existing ZPL file or a blank label.</p>
+        </div>
+        <a class="button button-primary button-large" href="../studio/?lang=en">Start ZPL-Studio <span aria-hidden="true">→</span></a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <a class="brand brand-footer" href="./" aria-label="ZPL-Studio home">
+      <img src="../favicon.svg" width="26" height="26" alt="">
+      <span>ZPL-Studio</span>
+    </a>
+    <p>Browser-based editor for Zebra-compatible labels.</p>
+    <a href="../studio/?lang=en">To the studio <span aria-hidden="true">→</span></a>
+  </footer>
+</body>
+</html>

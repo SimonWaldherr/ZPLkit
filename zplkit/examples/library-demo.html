@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>ZPLkit – Einbindungsbeispiel</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Loads ONLY a ZPLkit bundle - no Studio CSS/JS at all. This page is what
+     an external tool embedding the library looks like, and doubles as the
+     smoke test for that path. The bundle is injected by script below so the
+     same page can exercise both the lite and the full build (?bundle=lite). -->
+<style>
+  :root { --navy: #051E50; --yellow: #FFD602; --border: #DBDBDB; --alt: #F6F6F6; --muted: #48536b; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px; font-family: "Trebuchet MS", Arial, sans-serif;
+         color: var(--navy); background: #fff; font-size: 16px; line-height: 1.5; }
+  .wrap { max-width: 1000px; margin: 0 auto; }
+  h1 { font-size: 36px; margin: 0 0 4px; }
+  h2 { font-size: 20px; margin: 32px 0 8px; }
+  p.lead { color: var(--muted); margin: 0 0 8px; }
+  code, pre { font-family: Consolas, "Courier New", monospace; font-size: 13px; }
+  pre { background: var(--alt); border: 1px solid var(--border); padding: 12px;
+        overflow-x: auto; margin: 0 0 12px; }
+  textarea { width: 100%; height: 150px; font-family: Consolas, monospace; font-size: 13px;
+             border: 1px solid var(--border); padding: 8px; }
+  button { background: var(--navy); color: #fff; border: 0; padding: 10px 16px;
+           font-family: inherit; font-size: 14px; cursor: pointer; }
+  button:hover { background: #0a2a69; }
+  button.accent { background: var(--yellow); color: var(--navy); }
+  .row { display: flex; gap: 16px; flex-wrap: wrap; }
+  .row > div { flex: 1 1 380px; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { border: 1px solid var(--border); padding: 6px 8px; text-align: left; }
+  th { background: var(--alt); }
+  .ok { color: #1a5c34; font-weight: bold; }
+  .fail { color: #B3261E; font-weight: bold; }
+  .skip { color: var(--muted); }
+  #results td:first-child { width: 46%; }
+  .switch { border: 1px solid var(--border); padding: 12px; margin: 0 0 16px;
+            display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .switch strong { font-size: 14px; }
+  .switch a { color: var(--navy); }
+  .badge { background: var(--navy); color: #fff; padding: 2px 8px; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>ZPLkit</h1>
+  <p class="lead">Dieselbe ZPL-Logik wie in <em>ZPL-Studio</em>, ohne Studio-UI &ndash;
+     zum Einbinden in andere Tools. Diese Seite l&auml;dt ausschlie&szlig;lich ein Bundle aus <code>dist/</code>.</p>
+
+  <div class="switch">
+    <strong>Geladenes Bundle:</strong>
+    <span class="badge" id="bundleBadge">…</span>
+    <span id="bundleSize" class="lead" style="margin:0"></span>
+    <span>&nbsp;</span>
+    <a href="?bundle=full">full laden</a>
+    <a href="?bundle=lite">lite laden</a>
+  </div>
+
+  <h2>Einbinden</h2>
+  <pre>&lt;script src="zplkit-full.js"&gt;&lt;/script&gt;
+&lt;script&gt;
+  const label = ZPLkit.parse(zplText);   // ZPL-Text  -> Objektmodell
+  label.elements[0].x = 100;             // beliebig ver&auml;ndern
+  const out = ZPLkit.generate(label);    // Modell -> ZPL-Text
+&lt;/script&gt;</pre>
+  <p class="lead">In Node/CommonJS: <code>const ZPLkit = require('./zplkit-full.js');</code></p>
+
+  <h2>Live ausprobieren</h2>
+  <div class="row">
+    <div>
+      <p><strong>ZPL-Eingabe</strong></p>
+      <textarea id="input">^XA
+^FO50,50
+^A0N,36,36
+^FDArtikel 4711^FS
+^FO50,110
+^BY2,3,60
+^BCN,60,Y,N,N
+^FD4006381333931^FS
+^FO50,220
+^GB300,80,4,B,0
+^FS
+^XZ</textarea>
+      <p style="margin-top:8px">
+        <button id="btnRound">Parsen &amp; neu erzeugen</button>
+        <button id="btnTests" class="accent">Selbsttest starten</button>
+      </p>
+    </div>
+    <div>
+      <p><strong>Ergebnis</strong></p>
+      <textarea id="output" readonly></textarea>
+      <p id="summary" class="lead" style="margin-top:8px"></p>
+    </div>
+  </div>
+
+  <h2>Selbsttest</h2>
+  <p class="lead">Pr&uuml;ft, dass die Library im Alleingang (ohne Editor) funktioniert. Tests, deren
+     Modul im geladenen Bundle fehlt, werden &uuml;bersprungen &ndash; nicht als Fehler gez&auml;hlt.</p>
+  <table id="results"><thead><tr><th>Test</th><th>Ergebnis</th></tr></thead><tbody></tbody></table>
+
+  <h2>Geladene Module</h2>
+  <pre id="modules"></pre>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  const $ = function (id) { return document.getElementById(id); };
+
+  const params = new URLSearchParams(location.search);
+  const variant = params.get('bundle') === 'lite' ? 'lite' : 'full';
+  const bundleUrl = '../dist/zplkit-' + variant + '.js';
+
+  // Loaded dynamically (rather than a static <script src>) purely so this one
+  // page can exercise either build - a real consumer just uses a script tag.
+  function loadBundle() {
+    return new Promise(function (resolve, reject) {
+      const s = document.createElement('script');
+      s.src = bundleUrl;
+      s.onload = resolve;
+      s.onerror = function () { reject(new Error('konnte ' + bundleUrl + ' nicht laden')); };
+      document.head.appendChild(s);
+    });
+  }
+
+  // Each test names the ZPLkit sub-namespace it needs (or null for "always"),
+  // so the lite build reports "übersprungen" instead of a false failure.
+  const TESTS = [
+    [null, 'Namespace + Version vorhanden', function () {
+      return typeof ZPLkit === 'object' && /^\d+\.\d+\.\d+$/.test(ZPLkit.version);
+    }],
+    [null, 'Kernmodule geladen', function () {
+      return ['Model', 'Parser', 'Generator', 'Barcode'].every(function (m) { return !!ZPLkit[m]; });
+    }],
+    ['Parser', 'parse() erkennt Text + Barcode', function () {
+      const types = ZPLkit.parse($('input').value).elements.map(function (e) { return e.type; });
+      return types.indexOf('text') !== -1 && types.indexOf('barcode') !== -1;
+    }],
+    ['Generator', 'Roundtrip erh&auml;lt Feldinhalt', function () {
+      const out = ZPLkit.generate(ZPLkit.parse($('input').value));
+      return out.indexOf('Artikel 4711') !== -1 && out.indexOf('4006381333931') !== -1;
+    }],
+    ['Generator', 'Roundtrip ist stabil (2x = 1x)', function () {
+      const once = ZPLkit.generate(ZPLkit.parse($('input').value));
+      return ZPLkit.generate(ZPLkit.parse(once)) === once;
+    }],
+    ['Generator', 'Umlaute bleiben erhalten', function () {
+      const probe = 'Größe_ÄÖÜ';
+      return ZPLkit.generate(ZPLkit.parse('^XA^FO10,10^A0N,30,30^FD' + probe + '^FS^XZ')).indexOf(probe) !== -1;
+    }],
+    // Guards the lite build specifically: a label carrying an embedded ^GF
+    // graphic must survive parse+generate even with no graphic codec present,
+    // rather than throwing or being lost. Deliberately checks only what holds
+    // for BOTH builds - lite keeps the hex payload verbatim as raw text,
+    // while full decodes it to a graphic element and re-encodes it (often to
+    // a shorter RLE form), so asserting the exact bytes would be wrong.
+    ['Generator', 'Label mit ^GF-Grafik geht nicht verloren', function () {
+      const src = '^XA^FO10,10^GFA,8,8,1,FFFFFFFFFFFFFFFF^FS^FO10,80^A0N,20,20^FDx^FS^XZ';
+      const once = ZPLkit.generate(ZPLkit.parse(src));
+      const twice = ZPLkit.generate(ZPLkit.parse(once));
+      return once === twice && /\^GFA?,/.test(once) && once.indexOf('^FDx') !== -1;
+    }],
+    ['Barcode', 'Barcode-Encoder liefert Balken', function () {
+      const r = ZPLkit.Barcode.code128('12345678');
+      return r.ok === true && r.bars.length > 0;
+    }],
+    ['Barcode', 'EAN-13 wird codiert', function () {
+      const r = ZPLkit.Barcode.ean13('4006381333931');
+      return r.ok === true && r.bars.length > 0;
+    }],
+    ['Model', 'emptyLabel() liefert Grundger&uuml;st', function () {
+      const l = ZPLkit.emptyLabel();
+      return !!l.settings && l.settings.widthDots > 0 && Array.isArray(l.elements);
+    }],
+    ['Graphic', '^GF-Grafik wird dekodiert', function () {
+      const l = ZPLkit.parse('^XA^FO10,10^GFA,8,8,1,FFFFFFFFFFFFFFFF^FS^XZ');
+      return l.elements.some(function (e) { return e.type === 'graphic'; });
+    }],
+    ['Glossary', 'Glossar erkl&auml;rt ^FO', function () {
+      const info = ZPLkit.Glossary.lookup('^FO');
+      return !!info && typeof info.desc === 'string' && info.desc.length > 0;
+    }],
+    ['Diff', 'Diff findet ge&auml;nderte Position', function () {
+      const a = ZPLkit.parse($('input').value);
+      const b = ZPLkit.parse($('input').value);
+      b.elements[0].x += 40;
+      return ZPLkit.Diff.compareLabels(a, b).changed.length === 1;
+    }],
+    ['CSV', 'CSV-Parser liest Semikolon-Datei', function () {
+      // Zeilen kommen als Objekte je Spaltenname (nicht als Arrays).
+      const r = ZPLkit.CSV.parse('NR;NAME\n1;Schraube\n2;Mutter');
+      return r.delimiter === ';' && r.headers.length === 2 &&
+        r.rows.length === 2 && r.rows[1].NAME === 'Mutter';
+    }],
+    ['LabelSheets', 'Etikettenbogen-Preset rechnet Raster (3&times;8 = 24)', function () {
+      const slots = ZPLkit.LabelSheets.computeSlots(ZPLkit.LabelSheets.presetById('a4-70x37-24'));
+      return slots.length === 24 && slots[0].widthMM === 70;
+    }],
+  ];
+
+  function runTests() {
+    const tbody = $('results').querySelector('tbody');
+    tbody.innerHTML = '';
+    let pass = 0, fail = 0, skip = 0;
+    TESTS.forEach(function (t) {
+      const need = t[0], title = t[1], fn = t[2];
+      const tr = document.createElement('tr');
+      const td1 = document.createElement('td');
+      td1.innerHTML = title;
+      const td2 = document.createElement('td');
+      if (need && !ZPLkit[need]) {
+        skip++;
+        td2.className = 'skip';
+        td2.textContent = 'übersprungen (' + need + ' nicht im ' + variant + '-Bundle)';
+      } else {
+        let ok = false, note = '';
+        try { ok = fn() === true; } catch (err) { note = ' (' + err.message + ')'; }
+        ok ? pass++ : fail++;
+        td2.className = ok ? 'ok' : 'fail';
+        td2.textContent = (ok ? 'bestanden' : 'FEHLGESCHLAGEN') + note;
+      }
+      tr.appendChild(td1); tr.appendChild(td2);
+      tbody.appendChild(tr);
+    });
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td><strong>Summe</strong></td><td class="' + (fail ? 'fail' : 'ok') +
+      '"><strong>' + pass + ' bestanden, ' + fail + ' fehlgeschlagen' +
+      (skip ? ', ' + skip + ' übersprungen' : '') + '</strong></td>';
+    tbody.appendChild(tr);
+    window.__testSummary = { pass: pass, fail: fail, skip: skip, variant: variant };
+  }
+
+  function roundtrip() {
+    try {
+      const label = ZPLkit.parse($('input').value);
+      $('output').value = ZPLkit.generate(label);
+      $('summary').textContent = label.elements.length + ' Element(e) erkannt: ' +
+        label.elements.map(function (e) {
+          return e.type + (e.barcodeType ? ' (' + e.barcodeType + ')' : '');
+        }).join(', ');
+    } catch (err) {
+      $('output').value = '';
+      $('summary').textContent = 'Fehler: ' + err.message;
+    }
+  }
+
+  loadBundle().then(function () {
+    $('bundleBadge').textContent = 'zplkit-' + variant + '.js';
+    $('modules').textContent = 'ZPLkit.version = ' + ZPLkit.version + '\n' +
+      'ZPLkit.modules = [' + ZPLkit.modules.join(', ') + ']';
+    // Transfer size actually seen by the browser, so the lite/full difference
+    // is visible here rather than only claimed in the README.
+    if (window.performance && performance.getEntriesByType) {
+      const e = performance.getEntriesByType('resource').filter(function (r) {
+        return r.name.indexOf('zplkit-' + variant) !== -1;
+      })[0];
+      if (e) {
+        const kb = function (n) { return (n / 1024).toFixed(1) + ' KB'; };
+        $('bundleSize').textContent = e.transferSize
+          ? '(' + kb(e.transferSize) + ' übertragen, ' + kb(e.decodedBodySize) + ' entpackt)'
+          : '(' + kb(e.decodedBodySize) + ')';
+      }
+    }
+    $('btnRound').addEventListener('click', roundtrip);
+    $('btnTests').addEventListener('click', runTests);
+    roundtrip();
+  }).catch(function (err) {
+    $('bundleBadge').textContent = 'Fehler';
+    $('summary').textContent = err.message + ' – wurde `go run tools/bundle-lib.go` ausgeführt?';
+  });
+})();
+</script>
+</body>
+</html>
