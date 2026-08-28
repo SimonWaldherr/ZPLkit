@@ -41,6 +41,24 @@
     'raster.reason.module-too-small': 'mindestens eine Modulbreite ist sehr klein',
     'raster.reason.inverse-barcode': 'ein inverser Barcode benötigt einen passenden Scanner',
     'raster.reason.edge-quiet-zone': 'ein Barcode liegt zu nah am Labelrand',
+    'unit.dots': 'Dots',
+    'unit.px': 'px',
+    'Punkte/mm': 'Punkte/mm',
+    'dpi.size-kept': '{size} bleibt',
+    'dpi.resolution-info': '{dpmm} Dots pro Millimeter · {size}',
+    'dpi.non-standard': 'keine übliche Zebra-Auflösung',
+    'dpi.factor-exact': 'Faktor ×{factor} – exakt aus den Druckkopfauflösungen in Punkten pro Millimeter berechnet, damit die physische Etikettengröße erhalten bleibt.',
+    'dpi.factor-approx': 'Faktor ×{factor} – aus dpi/25,4 berechnet; mindestens eine der Auflösungen ist keine übliche Zebra-Druckkopfauflösung.',
+    'dpi.rounding-note': 'Rundung auf ganze Dots: bis zu ±{mm} Abweichung pro Wert.',
+    'dpi.converted': 'Auf {dpi} dpi umgerechnet (Faktor ×{factor}).',
+    'dpi.only-declared': 'DPI-Angabe geändert – die Dot-Werte blieben unverändert.',
+    'dpi.graphics-failed': '{count} Grafik(en) konnten nicht neu gerastert werden – bitte prüfen.',
+    'dpi.element-physical': 'Physisch bei {dpi} dpi: {x} / {y} mm · {w} × {h} mm',
+    'dpi.from-filename': 'Auflösung {dpi} dpi aus dem Dateinamen übernommen.',
+    'dpi.download-renamed': 'Als „{name}“ heruntergeladen – Endung an {dpi} dpi angepasst.',
+    'dpi.filename-mismatch': 'Der Dateiname „{name}“ nennt {nameDpi} dpi, eingestellt sind {dpi} dpi. Bitte prüfen, für welchen Drucker dieses Etikett gedacht ist.',
+    'dpi.printer-mismatch': '„{printer}“ druckt mit {printerDpi} dpi, dieses Etikett ist für {labelDpi} dpi ausgelegt. Unverändert gedruckt kommt es in der falschen Größe heraus.',
+    'dpi.convert-to-printer': 'Etikett auf {dpi} dpi umrechnen…',
     'toast.history-excluded': 'Diese Änderung ist ausgeschlossen – zeige den Stand davor.',
     'sheet.count': '{count}/Bogen',
     'library.folder-unsupported': 'Wird von diesem Browser nicht unterstützt. Nutze stattdessen „Datei öffnen…“.',
@@ -85,6 +103,11 @@
     librarySource: null, // 'server' | 'local' | null - which source last populated #libraryList (see currentLibraryEntries)
     drag: null, // active pointer interaction, see canvas handlers
     grid: { enabled: false, size: 10 }, // dots
+    // Display unit for the grid input, the coordinate HUD and the inspector's
+    // size readouts - 'dots' | 'mm'. Purely a presentation choice: the label
+    // model itself is always in printer dots, so switching this never edits
+    // a single value (unlike the DPI conversion, which does).
+    unit: 'dots',
     alignGuides: null, // { x: {at,y1,y2} | null, y: {at,x1,x2} | null } - set only while dragging a move (see computeAlignSnap), drawn by drawLabel
     // Mail-Merge / Seriendruck (see the section further down) -----------------
     mergeData: null, // { sheetNames, sheets: {name: {headers, rows}}, activeSheet, sourceName }
@@ -450,6 +473,21 @@
     return state.librarySource === 'server' ? !!state.serverApiBase : !!state.dirHandle;
   }
 
+  // A ZPL file states no resolution, so a freshly parsed label always starts
+  // at the model's 203 dpi default - which silently misreports the physical
+  // size of anything written for a 300 dpi printhead. The `.200zpl`/`.300zpl`
+  // naming convention (already accepted by this editor's file pickers) is the
+  // one place a file DOES declare its resolution, so honor it. This only
+  // corrects the DECLARED dpi: the dot values in the file are already the
+  // right ones for that printer and must not be touched.
+  function applyFileNameDpi(label, fileName) {
+    const declared = DPI.dpiFromFileName(fileName);
+    if (!declared || !label || !label.settings) return null;
+    if (DPI.scaleFactor(label.settings.dpi, declared) === 1) return null;
+    label.settings.dpi = declared;
+    return declared;
+  }
+
   function loadLabel(label, fileName, fileHandle, serverFileName) {
     // Same stale-snapshot hazard undo()/redo() guard against: a nudge
     // scheduled just before opening a different label must not fire
@@ -548,6 +586,53 @@
     });
     return cloned;
   }
+  // ---------------------------------------------------------------------
+  // Printer resolution / physical units
+  //
+  // A ZPL label states no resolution of its own - every value in it is a
+  // printer dot - so `settings.dpi` is what turns those dots into a physical
+  // size for the ruler, the mm readouts and the DPI conversion below.
+  // ZPLDpi (zplkit/zpl-dpi.js) owns the actual math, including the detail
+  // that "203 dpi" and "300 dpi" are rounded labels for 8 and 12 dots/mm -
+  // so converting between them is exactly ×1.5, not 300/203.
+  // ---------------------------------------------------------------------
+  const DPI = window.ZPLDpi;
+
+  function currentDpi() {
+    return (state.label.settings && state.label.settings.dpi) || 203;
+  }
+  function dotsToMm(dots, dpi) {
+    return DPI.dotsToMm(dots, dpi == null ? currentDpi() : dpi);
+  }
+  // Shared number formatting for every physical readout, in the editor's own
+  // locale (German writes "8,5 mm") - one place so the label settings, the
+  // coordinate HUD and the element inspector can't drift apart.
+  function formatNumber(value, decimals) {
+    const d = decimals == null ? 1 : decimals;
+    return Number(value).toLocaleString(editorLocaleTag(), { minimumFractionDigits: d, maximumFractionDigits: d });
+  }
+  function mmLabel(mm, decimals) {
+    return formatNumber(mm, decimals) + ' mm';
+  }
+  // A DPI conversion factor: "1,5" for the clean 203 -> 300 case, but up to
+  // four decimals for a custom resolution, where cutting it to the locale's
+  // default three would print an approximation as if it were the exact
+  // factor that was actually applied.
+  function formatFactor(factor) {
+    return Number(factor).toLocaleString(editorLocaleTag(), { maximumFractionDigits: 4 });
+  }
+  // Formats a dot value the way the toolbar's unit selector asks for it,
+  // used by the readouts that follow the selection/cursor rather than by the
+  // model itself - the model always stays in dots.
+  function formatLength(dots) {
+    return state.unit === 'mm' ? mmLabel(dotsToMm(dots)) : (Math.round(dots) + ' Dots');
+  }
+  function formatPoint(x, y) {
+    return state.unit === 'mm'
+      ? formatNumber(dotsToMm(x)) + ' / ' + formatNumber(dotsToMm(y)) + ' mm'
+      : (Math.round(x) + ', ' + Math.round(y));
+  }
+
   // ---------------------------------------------------------------------
   // Font mapping (cosmetic only — real rendering happens on the printer)
   // ---------------------------------------------------------------------
@@ -1562,6 +1647,7 @@
       field('Y (Dots)', '<input type="number" data-bind="y">')
     );
     html += field('Ankerpunkt', '<select data-bind="origin"><option value="FO">FO – obere linke Ecke</option><option value="FT">FT – Grundlinie (Typeset)</option></select>');
+    html += '<p class="hint" id="elPhysical"></p>';
     html += '<p class="hint">X/Y sind der Abstand vom linken bzw. oberen Rand des Etiketts in Bildpunkten (Dots). FO verankert oben links, FT an der Schriftgrundlinie – wichtig, wenn Text unterschiedlich hoch ist.</p>';
 
     if (el.type === 'text') {
@@ -2064,6 +2150,18 @@
     });
     const zplCodeEl = $('elementZplCode');
     if (zplCodeEl && window.ZPLGenerator) zplCodeEl.textContent = window.ZPLGenerator.generateElement(el).replace(/\n$/, '');
+    // What this element's dot values mean on the printer currently selected
+    // in the label settings - the number that actually matters when checking
+    // a label against a physical specification or a die-cut size.
+    const physicalEl = $('elPhysical');
+    if (physicalEl) {
+      const b = getBounds(el);
+      physicalEl.textContent = t('dpi.element-physical', {
+        dpi: currentDpi(),
+        x: formatNumber(dotsToMm(el.x)), y: formatNumber(dotsToMm(el.y)),
+        w: formatNumber(dotsToMm(b.w)), h: formatNumber(dotsToMm(b.h)),
+      });
+    }
     const fbCb = container.querySelector('[data-bind="hasFieldBlock"]');
     if (fbCb) fbCb.checked = !!el.fieldBlock;
     const compressCb = container.querySelector('[data-bind="compress"]');
@@ -2139,30 +2237,19 @@
     if (!el.bits) return;
     const rawW = el.displayWidthPx != null ? el.displayWidthPx : el.widthPx;
     const rawH = el.displayHeightPx != null ? el.displayHeightPx : el.heightPx;
-    const newW = Math.min(MAX_GRAPHIC_DIM, Math.max(2, Math.round(rawW)));
-    const newH = Math.min(MAX_GRAPHIC_DIM, Math.max(2, Math.round(rawH)));
+    const newW = clampGraphicDim(rawW);
+    const newH = clampGraphicDim(rawH);
     if (newW === el.widthPx && newH === el.heightPx) {
       el.displayWidthPx = el.widthPx; el.displayHeightPx = el.heightPx; // reflect any clamping back into the model/UI
       return;
     }
     try {
-      const off1 = document.createElement('canvas');
-      off1.width = el.widthPx; off1.height = el.heightPx;
-      off1.getContext('2d').putImageData(window.ZPLGraphic.bitsToImageData({ widthPx: el.widthPx, heightPx: el.heightPx, bytesPerRow: el.bytesPerRow, bytes: el.bits }), 0, 0);
-      const off2 = document.createElement('canvas');
-      off2.width = newW; off2.height = newH;
-      const octx2 = off2.getContext('2d');
-      octx2.fillStyle = '#fff';
-      octx2.fillRect(0, 0, newW, newH);
-      octx2.drawImage(off1, 0, 0, newW, newH);
-      const imgData = octx2.getImageData(0, 0, newW, newH);
-      // Re-threshold with whatever dither/threshold the user picked at import
-      // (el.mono) instead of a fixed hidden default, so resizing doesn't
-      // suddenly look different from the rest of the label. Channel/blur/
-      // levels aren't reapplied here - the source is already black/white by
-      // this point, there's no color information left to re-extract.
-      const mono = el.mono || MONO_DEFAULTS;
-      const decoded = window.ImageMono.monochromize(imgData, { dither: mono.dither, threshold: mono.threshold });
+      // Re-thresholds with whatever dither/threshold the user picked at
+      // import (el.mono) instead of a fixed hidden default, so resizing
+      // doesn't suddenly look different from the rest of the label - see
+      // resampleMonoBits, shared with DPI conversion so both paths produce
+      // identical bits for the same target size.
+      const decoded = resampleMonoBits({ widthPx: el.widthPx, heightPx: el.heightPx, bytesPerRow: el.bytesPerRow, bits: el.bits }, newW, newH, el.mono);
       el.widthPx = decoded.widthPx; el.heightPx = decoded.heightPx; el.bytesPerRow = decoded.bytesPerRow; el.bits = decoded.bytes;
       el.displayWidthPx = el.widthPx; el.displayHeightPx = el.heightPx;
       scheduleZ64Compression(el, decoded.bytes);
@@ -2192,6 +2279,333 @@
   }
 
   // ---------------------------------------------------------------------
+  // Label size presets and printer-resolution controls
+  //
+  // The preset dimensions are stated physically (in cm) and converted to
+  // dots through the printhead's exact dots/mm rather than a rounded dpi
+  // number: 8.5 cm at 8 dots/mm is exactly 680 dots, where 8.5/2.54*203
+  // would give 679.
+  // ---------------------------------------------------------------------
+  const LABEL_SIZE_PRESETS = { klein: { wCm: 8.5, hCm: 5.5 }, gross: { wCm: 10, hCm: 15 } };
+  function presetToDots(preset, dpi) {
+    return { w: Math.round(DPI.mmToDots(preset.wCm * 10, dpi)), h: Math.round(DPI.mmToDots(preset.hCm * 10, dpi)) };
+  }
+  function clampLabelDots(value) {
+    const n = Number(value);
+    return Math.min(M.MAX_LABEL_DOTS, Math.max(1, isFinite(n) ? Math.round(n) : 1));
+  }
+
+  // "300 dpi (12 Punkte/mm)" - composed here rather than using the preset's
+  // own `label`, which is the module's German default for standalone
+  // consumers; the editor's UI is trilingual.
+  function dpiPresetLabel(preset) {
+    return preset.dpi + ' dpi (' + preset.dpmm + ' ' + t('Punkte/mm') + ')';
+  }
+  function dpiPresetOptions(currentDpiValue) {
+    return DPI.PRESETS.map(function (p) {
+      const selected = DPI.presetFor(currentDpiValue) === p ? ' selected' : '';
+      return '<option value="' + p.dpi + '"' + selected + '>' + escapeHtml(dpiPresetLabel(p)) + '</option>';
+    }).join('');
+  }
+  function dpiOptionsHtml(currentDpiValue) {
+    const isPreset = !!DPI.presetFor(currentDpiValue);
+    return dpiPresetOptions(currentDpiValue) +
+      '<option value="custom"' + (isPreset ? '' : ' selected') + '>' + escapeHtml(t('Andere Auflösung…')) + '</option>';
+  }
+
+  // Mirrors settings.widthDots/heightDots into all four size inputs plus the
+  // resolution readout. One function so the dots fields, the mm fields, the
+  // preset picker and a DPI conversion can never show three different
+  // versions of the same label size.
+  function syncLabelSizeFields() {
+    const s = state.label.settings;
+    const wDots = $('lsWidth'), hDots = $('lsHeight'), wMm = $('lsWidthMm'), hMm = $('lsHeightMm');
+    if (!wDots || !wMm) return; // settings panel not currently built
+    if (document.activeElement !== wDots) wDots.value = s.widthDots;
+    if (document.activeElement !== hDots) hDots.value = s.heightDots;
+    if (document.activeElement !== wMm) wMm.value = (Math.round(dotsToMm(s.widthDots, s.dpi) * 10) / 10);
+    if (document.activeElement !== hMm) hMm.value = (Math.round(dotsToMm(s.heightDots, s.dpi) * 10) / 10);
+    const info = $('lsDpiInfo');
+    if (info) {
+      const dpmm = DPI.dpmmFor(s.dpi);
+      const exact = !!DPI.presetFor(s.dpi);
+      info.textContent = t('dpi.resolution-info', {
+        dpmm: formatNumber(dpmm, exact ? 0 : 2),
+        size: mmLabel(dotsToMm(s.widthDots, s.dpi)) + ' × ' + mmLabel(dotsToMm(s.heightDots, s.dpi)),
+      }) + (exact ? '' : ' · ' + t('dpi.non-standard'));
+    }
+  }
+
+  // Set by wireDpiControls on every rebuild of the settings panel; lets the
+  // conversion dialog put the DPI select back if the user cancels.
+  let dpiControlsReset = function () {};
+
+  function wireDpiControls(s) {
+    const select = $('lsDpi');
+    const customRow = $('lsDpiCustomRow');
+    const customInput = $('lsDpiCustom');
+    if (!select) return;
+    customInput.value = s.dpi;
+
+    // A DPI change is offered as a conversion rather than applied silently:
+    // "this label is for a 300 dpi printer" and "make this label print the
+    // same size on a 300 dpi printer" are two different intentions, and only
+    // the user knows which one this is. Cancelling puts the control back.
+    function requestDpi(target) {
+      const next = Math.round(Number(target));
+      if (!isFinite(next) || next < 50 || next > 2400) { resetDpiControls(); return; }
+      if (DPI.scaleFactor(s.dpi, next) === 1) {
+        // Same printhead resolution under a different nominal name (200 vs
+        // 203 dpi): nothing to convert, just record what the user picked.
+        s.dpi = next;
+        renderAll(); updateZplSource(); pushHistory();
+        return;
+      }
+      openDpiConvertModal(s.dpi, next);
+    }
+    function resetDpiControls() {
+      select.value = DPI.presetFor(s.dpi) ? String(DPI.presetFor(s.dpi).dpi) : 'custom';
+      customRow.classList.toggle('hidden', !!DPI.presetFor(s.dpi));
+      customInput.value = s.dpi;
+    }
+    dpiControlsReset = resetDpiControls;
+
+    select.addEventListener('change', function () {
+      if (select.value === 'custom') {
+        customRow.classList.remove('hidden');
+        customInput.focus();
+        return;
+      }
+      customRow.classList.add('hidden');
+      requestDpi(select.value);
+    });
+    customInput.addEventListener('change', function () { requestDpi(customInput.value); });
+    $('btnDpiConvert').addEventListener('click', function () {
+      // Pre-selects the "other" common resolution so the most frequent case
+      // (203 <-> 300) is one click away.
+      openDpiConvertModal(s.dpi, DPI.dpmmFor(s.dpi) >= 12 ? 203 : 300);
+    });
+  }
+
+  // ---------------------------------------------------------------------
+  // DPI conversion
+  //
+  // ZPLDpi.convertLabel does the model walk; these two functions are the
+  // parts that need the browser: the confirmation dialog, and rasterizing
+  // embedded ^GF/~DG bitmaps to their new pixel size (packed monochrome bits
+  // can only be rescaled through a canvas).
+  // ---------------------------------------------------------------------
+
+  // Rescales packed 1bpp bits to newW x newH and re-thresholds with the
+  // same mono settings the image was imported with. Shared by the graphic
+  // property panel's resize (resampleGraphic) and by DPI conversion, so both
+  // produce identical bits for the same target size. Throws on canvas
+  // failure - callers decide whether that's fatal.
+  function resampleMonoBits(src, newW, newH, mono) {
+    const off1 = document.createElement('canvas');
+    off1.width = src.widthPx; off1.height = src.heightPx;
+    off1.getContext('2d').putImageData(window.ZPLGraphic.bitsToImageData({
+      widthPx: src.widthPx, heightPx: src.heightPx, bytesPerRow: src.bytesPerRow, bytes: src.bits,
+    }), 0, 0);
+    const off2 = document.createElement('canvas');
+    off2.width = newW; off2.height = newH;
+    const octx2 = off2.getContext('2d');
+    octx2.fillStyle = '#fff';
+    octx2.fillRect(0, 0, newW, newH);
+    octx2.drawImage(off1, 0, 0, newW, newH);
+    const imgData = octx2.getImageData(0, 0, newW, newH);
+    const m = mono || MONO_DEFAULTS;
+    return window.ImageMono.monochromize(imgData, { dither: m.dither, threshold: m.threshold });
+  }
+
+  function clampGraphicDim(value) {
+    return Math.min(MAX_GRAPHIC_DIM, Math.max(2, Math.round(value)));
+  }
+
+  // Applies the resample tasks ZPLDpi.convertLabel handed back. Returns how
+  // many failed so the caller can report it instead of leaving the user with
+  // a silently half-converted label.
+  function applyGraphicResampleTasks(label, tasks) {
+    let failed = 0;
+    tasks.forEach(function (task) {
+      const newW = clampGraphicDim(task.targetWidthPx);
+      const newH = clampGraphicDim(task.targetHeightPx);
+      try {
+        if (task.kind === 'inline') {
+          const el = task.element;
+          if (!el.bits) return;
+          const decoded = resampleMonoBits({ widthPx: el.widthPx, heightPx: el.heightPx, bytesPerRow: el.bytesPerRow, bits: el.bits }, newW, newH, el.mono);
+          el.widthPx = decoded.widthPx; el.heightPx = decoded.heightPx;
+          el.bytesPerRow = decoded.bytesPerRow; el.bits = decoded.bytes;
+          el.displayWidthPx = decoded.widthPx; el.displayHeightPx = decoded.heightPx;
+          scheduleZ64Compression(el, decoded.bytes);
+          return;
+        }
+        // A ~DG store is rescaled once; every ^XG element placing it keeps
+        // its own integer magnification (which a scale factor could not
+        // honor anyway - magX/magY only go up to 10) and simply re-points at
+        // the new bits.
+        const entry = task.entry;
+        if (!entry || !entry.bytes) return;
+        const decoded = resampleMonoBits({ widthPx: entry.widthPx, heightPx: entry.heightPx, bytesPerRow: entry.bytesPerRow, bits: entry.bytes }, newW, newH, entry.mono);
+        entry.widthPx = decoded.widthPx; entry.heightPx = decoded.heightPx;
+        entry.bytesPerRow = decoded.bytesPerRow; entry.bytes = decoded.bytes;
+        scheduleZ64Compression(entry, decoded.bytes);
+        (label.elements || []).forEach(function (el) {
+          if (el.type !== 'graphic' || el.storedName !== task.name) return;
+          el.widthPx = decoded.widthPx; el.heightPx = decoded.heightPx;
+          el.bytesPerRow = decoded.bytesPerRow; el.bits = decoded.bytes;
+          el.displayWidthPx = decoded.widthPx * (el.magX || 1);
+          el.displayHeightPx = decoded.heightPx * (el.magY || 1);
+        });
+      } catch (e) {
+        failed++;
+      }
+    });
+    return failed;
+  }
+
+  const DPI_CONVERT_GROUPS = [
+    { key: 'label', label: 'Etikettengröße und Offsets (^PW/^LL/^LH/^LS)' },
+    { key: 'elements', label: 'Positionen und Formen aller Elemente' },
+    { key: 'fonts', label: 'Schrifthöhen und -breiten (^A)' },
+    { key: 'barcodes', label: 'Barcode-Modulbreiten und -höhen (^BY/^B)' },
+    { key: 'graphics', label: 'Grafiken neu rastern (^GF/~DG)' },
+  ];
+
+  function dpiConvertOptionsFromForm() {
+    const opts = {};
+    DPI_CONVERT_GROUPS.forEach(function (g) {
+      const cb = $('dpiOpt_' + g.key);
+      opts[g.key] = cb ? cb.checked : true;
+    });
+    return opts;
+  }
+
+  // ZPLDpi's report carries a stable key/code plus the params its wording
+  // needs, next to a ready-made German sentence. Translate by key and fall
+  // back to that sentence, so a warning the catalog hasn't caught up with
+  // still reads as a complete sentence instead of showing a bare key.
+  function dpiReportText(catalogKey, params, germanFallback) {
+    const translated = t(catalogKey, params);
+    return translated === catalogKey ? germanFallback : translated;
+  }
+
+  function renderDpiConvertPreview(fromDpi, toDpi) {
+    const report = DPI.convertLabel(state.label, fromDpi, toDpi, Object.assign({ dryRun: true }, dpiConvertOptionsFromForm()));
+    let html = '<table class="dpi-preview"><thead><tr><th>' + t('Wert') + '</th><th>' + t('Vorher') +
+      '</th><th></th><th>' + t('Nachher') + '</th></tr></thead><tbody>';
+    if (!report.changes.length) {
+      html += '<tr><td colspan="4">' + escapeHtml(t('Mit der aktuellen Auswahl würde sich nichts ändern.')) + '</td></tr>';
+    }
+    report.changes.forEach(function (row) {
+      const unit = row.unit === 'px' ? t('unit.px') : t('unit.dots');
+      // The physical size is what a conversion is FOR, so the label-size row
+      // states explicitly that it stays put - that is the reassurance
+      // someone is looking for before clicking "Umrechnen".
+      const note = row.key === 'label-size'
+        ? t('dpi.size-kept', { size: mmLabel(report.physical.widthMM) + ' × ' + mmLabel(report.physical.heightMM) })
+        : null;
+      html += '<tr><td>' + escapeHtml(dpiReportText('dpi.change.' + row.key, row.params, row.label)) + '</td>' +
+        '<td>' + escapeHtml(row.from + ' ' + unit) + '</td><td>&rarr;</td>' +
+        '<td><strong>' + escapeHtml(row.to + ' ' + unit) + '</strong>' +
+        (note ? '<br><span class="dpi-note">' + escapeHtml(note) + '</span>' : '') + '</td></tr>';
+    });
+    html += '</tbody></table>';
+    html += '<p class="hint">' + escapeHtml(t('dpi.rounding-note', { mm: mmLabel(report.roundingErrorMM, 3) })) + '</p>';
+    if (report.warnings.length) {
+      html += '<ul class="dpi-warnings">' + report.warnings.map(function (w) {
+        return '<li>' + escapeHtml(dpiReportText('dpi.warn.' + w.code, w.params, w.text)) + '</li>';
+      }).join('') + '</ul>';
+    }
+    return html;
+  }
+
+  // opts.onSettled (optional) runs once the dialog is done, whichever way it
+  // ended - used by the print dialog, which this one replaces mid-flow, to
+  // come back afterward instead of dropping the user out of printing.
+  function openDpiConvertModal(fromDpi, toDpi, opts) {
+    const onSettled = (opts && opts.onSettled) || null;
+    const factor = DPI.scaleFactor(fromDpi, toDpi);
+    const exact = DPI.isExactPair(fromDpi, toDpi);
+    const factorText = formatFactor(factor);
+    let body = '<div class="dpi-convert">';
+    body += '<p class="dpi-head">' + escapeHtml(String(fromDpi)) + ' dpi <span>&rarr;</span> ' +
+      '<select id="dpiTarget">' + dpiPresetOptions(toDpi) +
+      // A custom target (typed into "Eigene Auflösung") is no preset, so it
+      // needs its own option or the select would silently jump to 152 dpi.
+      (DPI.presetFor(toDpi) ? '' : '<option value="' + toDpi + '" selected>' + escapeHtml(String(toDpi)) + ' dpi</option>') +
+      '</select></p>';
+    body += '<p class="hint">' + escapeHtml(t(exact ? 'dpi.factor-exact' : 'dpi.factor-approx', { factor: factorText })) + '</p>';
+    body += '<div class="section-title">' + t('Was umgerechnet wird') + '</div>';
+    DPI_CONVERT_GROUPS.forEach(function (g) {
+      body += '<div class="field-row field-check"><input type="checkbox" id="dpiOpt_' + g.key + '" checked>' +
+        '<label for="dpiOpt_' + g.key + '">' + t(g.label) + '</label></div>';
+    });
+    body += '<div class="section-title">' + t('Vorschau') + '</div>';
+    body += '<div id="dpiPreview"></div>';
+    body += '<div class="btn-row">' +
+      '<button id="btnDpiApply">' + t('Umrechnen') + '</button>' +
+      '<button id="btnDpiOnlyDeclare" title="Nur die DPI-Angabe ändern, alle Dot-Werte unverändert lassen – das Etikett wird dadurch physisch größer oder kleiner">' + t('Nur DPI-Angabe ändern') + '</button>' +
+      '<button id="btnDpiCancel">' + t('Abbrechen') + '</button>' +
+      '</div>';
+    body += '</div>';
+    // The ×/backdrop/Escape paths must behave exactly like "Abbrechen":
+    // this dialog is often reached by CHANGING the DPI select, so leaving
+    // silently would leave that select showing a resolution the label
+    // never got.
+    openModal('DPI umrechnen', body, function () { close(false); });
+
+    function currentTarget() { return parseInt($('dpiTarget').value, 10) || toDpi; }
+    function refresh() { $('dpiPreview').innerHTML = renderDpiConvertPreview(fromDpi, currentTarget()); }
+    refresh();
+    $('dpiTarget').addEventListener('change', refresh);
+    DPI_CONVERT_GROUPS.forEach(function (g) { $('dpiOpt_' + g.key).addEventListener('change', refresh); });
+
+    function close(applied) {
+      closeModal(false); // false: this IS the button path, don't also fire the dismiss handler
+      if (!applied) dpiControlsReset();
+      if (onSettled) onSettled(applied);
+    }
+    $('btnDpiCancel').addEventListener('click', function () { close(false); });
+    $('btnDpiOnlyDeclare').addEventListener('click', function () {
+      state.label.settings.dpi = currentTarget();
+      syncGridSizeInput();
+      renderAll(); updateZplSource(); pushHistory();
+      showToast(t('dpi.only-declared'));
+      close(true); // last, so onSettled (e.g. reopening the print dialog) sees the final state
+    });
+    $('btnDpiApply').addEventListener('click', function () {
+      applyDpiConversion(fromDpi, currentTarget(), dpiConvertOptionsFromForm());
+      close(true);
+    });
+  }
+
+  function applyDpiConversion(fromDpi, toDpi, options) {
+    const report = DPI.convertLabel(state.label, fromDpi, toDpi, options);
+    const failed = applyGraphicResampleTasks(state.label, report.graphicTasks);
+    state.label.settings.dpi = toDpi;
+    // Snapping and the toolbar grid are physical spacings too - a 2 mm grid
+    // must stay 2 mm after the conversion, not turn into 2/3 of that.
+    if (options.elements !== false) {
+      state.grid.size = Math.max(1, Math.round(state.grid.size * report.factor));
+    }
+    syncGridSizeInput();
+    fitZoom();
+    renderAll();
+    updateZplSource();
+    pushHistory();
+    if (failed) {
+      showToast(t('dpi.graphics-failed', { count: failed }), true);
+      return;
+    }
+    showToast(t('dpi.converted', {
+      dpi: toDpi,
+      factor: formatFactor(report.factor),
+    }));
+  }
+
+  // ---------------------------------------------------------------------
   // Label settings panel
   // ---------------------------------------------------------------------
   function buildLabelSettingsForm() {
@@ -2204,8 +2618,24 @@
       field('Breite (Dots)', '<input type="number" min="1" max="' + M.MAX_LABEL_DOTS + '" id="lsWidth">'),
       field('Höhe (Dots)', '<input type="number" min="1" max="' + M.MAX_LABEL_DOTS + '" id="lsHeight">')
     );
-    html += field('Drucker-DPI', '<select id="lsDpi"><option value="203">203 dpi</option><option value="300">300 dpi</option><option value="600">600 dpi</option></select>');
-    html += '<p class="hint">Breite/H&ouml;he sind die Etikettengr&ouml;&szlig;e in Bildpunkten; die Drucker-DPI bestimmt, wie viele Bildpunkte einem Millimeter entsprechen.</p>';
+    html += fieldPair(
+      field('Breite (mm)', '<input type="number" min="0.1" step="0.1" id="lsWidthMm">'),
+      field('Höhe (mm)', '<input type="number" min="0.1" step="0.1" id="lsHeightMm">')
+    );
+    html += field('Drucker-DPI', '<select id="lsDpi">' + dpiOptionsHtml(s.dpi) + '</select>');
+    html += '<div id="lsDpiCustomRow"' + (DPI.presetFor(s.dpi) ? ' class="hidden"' : '') + '>' +
+      field('Eigene Auflösung (dpi)', '<input type="number" min="50" max="2400" id="lsDpiCustom">') + '</div>';
+    html += '<p class="hint" id="lsDpiInfo"></p>';
+    // A `.200zpl`/`.300zpl` file name is the one place a ZPL file states its
+    // own intended resolution, so a name that contradicts the setting is
+    // worth surfacing - it usually means the file was written for a
+    // different printhead than the editor is currently assuming.
+    const nameDpi = DPI.dpiFromFileName(state.currentFileName || state.label.sourceFileName);
+    if (nameDpi && DPI.scaleFactor(s.dpi, nameDpi) !== 1) {
+      html += '<p class="hint" style="color:#B3261E">' + escapeHtml(t('dpi.filename-mismatch', { name: state.currentFileName || state.label.sourceFileName, nameDpi: nameDpi, dpi: s.dpi })) + '</p>';
+    }
+    html += '<div class="btn-row"><button id="btnDpiConvert" title="Alle Dot-Werte dieses Etiketts auf eine andere Druckerauflösung umrechnen">Auf andere DPI umrechnen&hellip;</button></div>';
+    html += '<p class="hint">Breite/H&ouml;he sind die Etikettengr&ouml;&szlig;e in Bildpunkten (Dots); die Drucker-DPI bestimmt, wie viele Dots einem Millimeter entsprechen. Ein ZPL-Etikett enth&auml;lt selbst keine Auflösung &ndash; dieselbe Datei wird auf einem 300-dpi-Drucker daher nur zwei Drittel so gro&szlig; wie auf einem 203-dpi-Drucker. Beim Wechsel der DPI bietet der Editor deshalb an, alle Werte mit umzurechnen.</p>';
     html += '<div class="section-title">Druckeinstellungen</div>';
     html += field('Medientransport (^MM)', '<select id="lsMM"><option value="T">Tear-off</option><option value="C">Cutter</option><option value="P">Peel-off</option><option value="R">Rewind</option><option value="A">Applicator</option></select>');
     html += '<p class="hint">Was der Drucker nach dem Druck tut: abrei&szlig;en, schneiden, abziehen, zur&uuml;ckspulen oder spenden.</p>';
@@ -2236,12 +2666,6 @@
     }
     container.innerHTML = html;
 
-    // Two common label-size presets. Their dimensions are converted to dots
-    // using the current printer DPI instead of being stored as fixed values.
-    const LABEL_SIZE_PRESETS = { klein: { wCm: 8.5, hCm: 5.5 }, gross: { wCm: 10, hCm: 15 } };
-    function presetToDots(preset, dpi) {
-      return { w: Math.round(preset.wCm / 2.54 * dpi), h: Math.round(preset.hCm / 2.54 * dpi) };
-    }
     let matchedPreset = '';
     Object.keys(LABEL_SIZE_PRESETS).forEach(function (key) {
       const d = presetToDots(LABEL_SIZE_PRESETS[key], s.dpi || 203);
@@ -2251,17 +2675,16 @@
     $('lsSizePreset').addEventListener('change', function (e) {
       const key = e.target.value;
       if (!key) return; // "Benutzerdefiniert" selected - leave current dimensions as-is
-      const dpi = parseInt($('lsDpi').value, 10) || s.dpi || 203;
-      const d = presetToDots(LABEL_SIZE_PRESETS[key], dpi);
+      const d = presetToDots(LABEL_SIZE_PRESETS[key], s.dpi || 203);
       s.widthDots = d.w; s.heightDots = d.h;
-      $('lsWidth').value = s.widthDots;
-      $('lsHeight').value = s.heightDots;
+      syncLabelSizeFields();
       renderAll(); updateZplSource(); pushHistory();
     });
 
     $('lsWidth').value = s.widthDots;
     $('lsHeight').value = s.heightDots;
-    $('lsDpi').value = String(s.dpi);
+    syncLabelSizeFields();
+    wireDpiControls(s);
     $('lsMM').value = s.mediaTracking;
     $('lsHomeX').value = s.homeX;
     $('lsHomeY').value = s.homeY;
@@ -2276,9 +2699,21 @@
       if (!elx) return;
       elx.addEventListener('change', function () { setter(elx); renderAll(); updateZplSource(); pushHistory(); });
     }
-    bind('lsWidth', function (e) { s.widthDots = Math.min(M.MAX_LABEL_DOTS, Math.max(1, parseInt(e.value, 10) || 1)); e.value = s.widthDots; });
-    bind('lsHeight', function (e) { s.heightDots = Math.min(M.MAX_LABEL_DOTS, Math.max(1, parseInt(e.value, 10) || 1)); e.value = s.heightDots; });
-    bind('lsDpi', function (e) { s.dpi = parseInt(e.value, 10); });
+    bind('lsWidth', function (e) { s.widthDots = clampLabelDots(parseInt(e.value, 10)); e.value = s.widthDots; syncLabelSizeFields(); });
+    bind('lsHeight', function (e) { s.heightDots = clampLabelDots(parseInt(e.value, 10)); e.value = s.heightDots; syncLabelSizeFields(); });
+    // The mm fields are a second view of the very same ^PW/^LL dots - they
+    // convert through the current DPI and write the rounded dot value back,
+    // so what the label actually contains stays the single source of truth.
+    // Clearing the field (or typing something unparseable) leaves the size
+    // alone and puts the value back, rather than collapsing the label to the
+    // 1-dot minimum a bare clamp would produce.
+    function mmFieldDots(rawValue) {
+      const mm = parseFloat(String(rawValue).replace(',', '.'));
+      if (!isFinite(mm) || mm <= 0) return null;
+      return clampLabelDots(Math.round(DPI.mmToDots(mm, s.dpi)));
+    }
+    bind('lsWidthMm', function (e) { const d = mmFieldDots(e.value); if (d != null) s.widthDots = d; syncLabelSizeFields(); });
+    bind('lsHeightMm', function (e) { const d = mmFieldDots(e.value); if (d != null) s.heightDots = d; syncLabelSizeFields(); });
     bind('lsMM', function (e) { s.mediaTracking = e.value; });
     bind('lsHomeX', function (e) { s.homeX = parseInt(e.value, 10) || 0; });
     bind('lsHomeY', function (e) { s.homeY = parseInt(e.value, 10) || 0; });
@@ -2978,7 +3413,7 @@
   canvas.addEventListener('mousemove', function (e) {
     if (state.drag || state.tool !== 'select') return; // the drag branch below owns the HUD while a drag is active
     const p = canvasPointToDots(e.clientX, e.clientY);
-    setCoordHud(Math.round(p.x) + ', ' + Math.round(p.y));
+    setCoordHud(formatPoint(p.x, p.y));
   });
   canvas.addEventListener('mouseleave', function () {
     if (!state.drag) setCoordHud(null);
@@ -3080,7 +3515,7 @@
     if (state.drag.mode === 'marquee') {
       state.drag.curDotX = Math.round(p.x);
       state.drag.curDotY = Math.round(p.y);
-      setCoordHud(Math.abs(state.drag.curDotX - state.drag.startDotX) + ' × ' + Math.abs(state.drag.curDotY - state.drag.startDotY));
+      setCoordHud(formatLength(Math.abs(state.drag.curDotX - state.drag.startDotX)) + ' × ' + formatLength(Math.abs(state.drag.curDotY - state.drag.startDotY)));
       drawLabel();
       return;
     }
@@ -3127,9 +3562,9 @@
       else if (el.type === 'circle') { el.x = newX; el.y = newY; el.diameter = Math.max(newW, newH); }
       else if (el.type === 'graphic') { el.x = newX; el.y = newY; el.displayWidthPx = newW; el.displayHeightPx = newH; }
       syncPropFormValues(el);
-      setCoordHud(newW + ' × ' + newH);
+      setCoordHud(formatLength(newW) + ' × ' + formatLength(newH));
     } else {
-      setCoordHud('Δx ' + (dx >= 0 ? '+' : '') + dx + ', Δy ' + (dy >= 0 ? '+' : '') + dy);
+      setCoordHud('Δx ' + (dx >= 0 ? '+' : '') + formatLength(dx) + ', Δy ' + (dy >= 0 ? '+' : '') + formatLength(dy));
       // Smart alignment guides: snap based on the PRIMARY dragged element only
       // (see computeAlignSnap) - when it finds a match on an axis, that axis's
       // grid-snap is skipped for every selected element so the exact alignment
@@ -3298,10 +3733,39 @@
   });
   $('chkGrid').addEventListener('change', function (e) { state.grid.enabled = e.target.checked; drawLabel(); });
   $('gridSize').addEventListener('change', function (e) {
-    const v = Math.max(1, parseInt(e.target.value, 10) || 10);
-    state.grid.size = v;
-    e.target.value = v;
+    // state.grid.size is always in dots (that's what snapValue/drawGrid work
+    // in); the input is whatever the unit selector currently shows, so a mm
+    // grid stays a mm grid across a DPI change instead of silently becoming
+    // a different physical spacing.
+    const raw = parseFloat(String(e.target.value).replace(',', '.'));
+    if (state.unit === 'mm') {
+      const mm = Math.max(0.1, isFinite(raw) ? raw : 1);
+      state.grid.size = Math.max(1, Math.round(DPI.mmToDots(mm, currentDpi())));
+    } else {
+      state.grid.size = Math.max(1, Math.round(isFinite(raw) ? raw : 10));
+    }
+    syncGridSizeInput();
     drawLabel();
+  });
+
+  // Mirrors state.grid.size into the toolbar input in the currently selected
+  // unit. Called after a unit switch and after a DPI conversion, both of
+  // which change what the same dot value reads as.
+  function syncGridSizeInput() {
+    const input = $('gridSize');
+    if (state.unit === 'mm') {
+      input.value = formatNumber(dotsToMm(state.grid.size), 1).replace(',', '.');
+      input.min = '0.1';
+      input.title = t('Gitterweite in mm');
+    } else {
+      input.value = String(state.grid.size);
+      input.min = '1';
+      input.title = t('Gitterweite in Dots');
+    }
+  }
+  $('unitSelect').addEventListener('change', function (e) {
+    state.unit = e.target.value === 'mm' ? 'mm' : 'dots';
+    syncGridSizeInput();
   });
 
   // ---------------------------------------------------------------------
@@ -3426,8 +3890,10 @@
       try {
         const label = window.ZPLParser.parseZPL(reader.result);
         label.sourceFileName = file.name;
+        const declaredDpi = applyFileNameDpi(label, file.name);
         loadLabel(label, file.name, null);
-        showToast('„' + file.name + '“ geladen (nur Download zum Speichern, kein Ordnerzugriff).');
+        showToast('„' + file.name + '“ geladen (nur Download zum Speichern, kein Ordnerzugriff).' +
+          (declaredDpi ? ' ' + t('dpi.from-filename', { dpi: declaredDpi }) : ''));
       } catch (err) {
         showToast('Konnte Datei nicht lesen: ' + err.message, true);
       }
@@ -3441,7 +3907,15 @@
 
   $('btnDownload').addEventListener('click', function () {
     const text = window.ZPLGenerator.generateZPL(state.label, { keepPreamble: state.keepPreamble !== false });
-    downloadBlob(new Blob([text], { type: 'text/plain' }), state.currentFileName || 'label.zpl');
+    const name = state.currentFileName || 'label.zpl';
+    // A `.200zpl`/`.300zpl` name states the resolution its dot values are
+    // for. After a DPI conversion that claim would be wrong, so the download
+    // gets the matching extension instead of quietly contradicting itself.
+    // Only the download is renamed - "Speichern" still writes back into the
+    // file that was actually opened.
+    const adjusted = DPI.renameForDpi(name, currentDpi());
+    downloadBlob(new Blob([text], { type: 'text/plain' }), adjusted);
+    if (adjusted !== name) showToast(t('dpi.download-renamed', { name: adjusted, dpi: currentDpi() }));
   });
 
   function downloadBlob(blob, filename) {
@@ -3788,6 +4262,7 @@
       (hasLabelServer ? '<option value="labelserver">' + t('Etikettenserver (XML)') + '</option>' : '') +
       '</select></div>';
     html += '<div id="printPrinterField"><p class="hint">' + t('Drucker werden geladen…') + '</p></div>';
+    html += '<div id="printDpiNotice"></div>';
     html += fieldPair(
       field(isBatch ? 'Durchläufe' : 'Anzahl', '<input type="number" id="printCopies" value="1" min="1" max="99">'),
       ''
@@ -3809,6 +4284,35 @@
       const printerSelect = $('printPrinterSelect');
       const selectionMissing = hasPrinterList && (!printerListReady || !printerSelect || (requiresPrinterSelection && !printerSelect.value));
       printConfirm.disabled = requestInFlight || selectionMissing;
+    }
+
+    // A label's dot values only mean the intended physical size on the
+    // printhead resolution they were laid out for - the same file prints at
+    // two thirds the size on a 300 dpi head as on a 203 dpi one. When the
+    // registry states a printer's dpi (optional `dpi` column, see
+    // printing.go) this catches the mismatch BEFORE a batch goes out at the
+    // wrong size, and offers the conversion right there.
+    function updatePrintDpiNotice() {
+      const notice = $('printDpiNotice');
+      if (!notice) return;
+      const printer = selectedPrinterId && loadedPrinters.find(function (p) { return p.id === selectedPrinterId; });
+      const printerDpi = printer && printer.dpi;
+      const labelDpiValue = currentDpi();
+      if (!printerDpi || DPI.scaleFactor(labelDpiValue, printerDpi) === 1) { notice.innerHTML = ''; return; }
+      notice.innerHTML = '<p class="hint print-dpi-warning">' +
+        escapeHtml(t('dpi.printer-mismatch', { printer: printer.name || printer.id, printerDpi: printerDpi, labelDpi: labelDpiValue })) +
+        '</p><div class="btn-row"><button id="btnPrintDpiConvert">' +
+        escapeHtml(t('dpi.convert-to-printer', { dpi: printerDpi })) + '</button></div>';
+      $('btnPrintDpiConvert').addEventListener('click', function () {
+        // Replaces this dialog with the conversion dialog rather than
+        // converting silently: the checkbox groups and the warning list are
+        // exactly what someone needs to see before rescaling a label they
+        // were about to print. Reopens this dialog afterward so the print
+        // the user actually came for is still one click away.
+        openDpiConvertModal(labelDpiValue, printerDpi, {
+          onSettled: function () { openPrintModal(printOptions); },
+        });
+      });
     }
 
     function loadPrinterList() {
@@ -3849,6 +4353,7 @@
             }).join('');
           $('printPrinterCount').textContent = matching.length ? t('print.printer-count', { count: matching.length, total: loadedPrinters.length }) : t('print.no-printers-match');
           updatePrintConfirm();
+          updatePrintDpiNotice();
         }
         $('printPrinterSearch').addEventListener('input', renderPrinterChoices);
         renderPrinterChoices();
@@ -3863,6 +4368,7 @@
           const type = option ? option.getAttribute('data-type') : '';
           if (type && targetTypeSelect.querySelector('option[value="' + type + '"]')) targetTypeSelect.value = type;
           updatePrintConfirm();
+          updatePrintDpiNotice();
         });
         updatePrintConfirm();
       }).catch(function (err) {
@@ -4230,7 +4736,9 @@
           const text = await entry.readText();
           const label = window.ZPLParser.parseZPL(text);
           label.sourceFileName = entry.name;
+          const declaredDpi = applyFileNameDpi(label, entry.name);
           loadLabel(label, entry.name, entry.handle, state.librarySource === 'server' ? entry.name : null);
+          if (declaredDpi) showToast(t('dpi.from-filename', { dpi: declaredDpi }));
           await refreshLibraryList();
         } catch (err) {
           showToast('Konnte „' + entry.name + '“ nicht laden: ' + err.message, true);
@@ -4436,9 +4944,13 @@
 
     openModal('Exakte Vorschau (labelary.com)', '<p class="loading">Wird geladen…</p>');
     const s = state.label.settings;
-    const dpmm = s.dpi >= 500 ? 24 : (s.dpi >= 250 ? 12 : (s.dpi >= 180 ? 8 : 6));
-    const widthIn = (s.widthDots / s.dpi).toFixed(2);
-    const heightIn = (s.heightDots / s.dpi).toFixed(2);
+    // Labelary addresses printers by whole dots/mm, and its label size is in
+    // inches - both derived through ZPLDpi so "203 dpi" resolves to the
+    // printhead's exact 8 dots/mm instead of a rounded ratio (a 3.996" label
+    // asked for as 4.00" comes back cropped by a few dots).
+    const dpmm = DPI.labelaryDpmm(s.dpi);
+    const widthIn = DPI.dotsToInch(s.widthDots, s.dpi).toFixed(2);
+    const heightIn = DPI.dotsToInch(s.heightDots, s.dpi).toFixed(2);
     const url = 'https://api.labelary.com/v1/printers/' + dpmm + 'dpmm/labels/' + widthIn + 'x' + heightIn + '/0/';
     // Mirror the on-canvas preview using a temporary model. Generating after
     // substitution keeps values safely inside their ZPL data fields.
@@ -4456,14 +4968,33 @@
     }
   });
 
-  function openModal(title, bodyHtml) {
+  // Runs when the CURRENT modal is dismissed by the ×, the backdrop or
+  // Escape rather than by one of its own buttons. A dialog that had to change
+  // a control in order to open (the DPI select in the label settings) needs
+  // to put that control back on every exit path, not just its own
+  // "Abbrechen" - otherwise the select keeps claiming a resolution the label
+  // never got. Always (re-)set by openModal, so a handler can never leak
+  // into the next dialog.
+  let modalDismissHandler = null;
+
+  function openModal(title, bodyHtml, onDismiss) {
     $('modalTitle').textContent = t(title);
     $('modalBody').innerHTML = bodyHtml;
     translateFragment($('modalBody'));
+    modalDismissHandler = onDismiss || null;
     $('modalOverlay').classList.remove('hidden');
   }
-  $('modalClose').addEventListener('click', function () { $('modalOverlay').classList.add('hidden'); });
-  $('modalOverlay').addEventListener('click', function (e) { if (e.target === $('modalOverlay')) $('modalOverlay').classList.add('hidden'); });
+  // dismissed: true for the ×/backdrop/Escape paths, false when one of the
+  // modal's own buttons closes it (that button already did whatever the
+  // dismiss handler would have done).
+  function closeModal(dismissed) {
+    $('modalOverlay').classList.add('hidden');
+    const handler = modalDismissHandler;
+    modalDismissHandler = null;
+    if (dismissed && handler) handler();
+  }
+  $('modalClose').addEventListener('click', function () { closeModal(true); });
+  $('modalOverlay').addEventListener('click', function (e) { if (e.target === $('modalOverlay')) closeModal(true); });
 
   $('btnShortcuts').addEventListener('click', function () {
     const rows = [

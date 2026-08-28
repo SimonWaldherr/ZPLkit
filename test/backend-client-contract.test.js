@@ -239,6 +239,32 @@ test('uses the selected backend route and preserves valid printer metadata', asy
   assert.deepEqual(calls, ['../api/backend', '../api/printers']);
 });
 
+test('carries a printer\'s printhead resolution through, but never invents one', async function () {
+  const client = loadClient(async function (url) {
+    if (url === '../api/backend') return responseJson({ capabilities: ['printers.list'] });
+    if (url === '../api/printers') {
+      return responseJson({
+        printers: [
+          { id: 'p300', name: 'Versand', type: 'zebra', dpi: 300 },
+          { id: 'p-unknown', name: 'Alt', type: 'zebra' },
+          { id: 'p-bad', name: 'Kaputt', type: 'zebra', dpi: '300' }, // wrong JSON type
+          { id: 'p-zero', name: 'Null', type: 'zebra', dpi: 0 },
+        ],
+      });
+    }
+    throw new Error('unexpected request: ' + url);
+  });
+
+  await client.probe();
+  const printers = toPlain(await client.listPrinters());
+  assert.equal(printers[0].dpi, 300);
+  // "No dpi reported" must stay distinguishable from a guessed default, so
+  // the key is absent rather than set to something plausible.
+  assert.equal('dpi' in printers[1], false);
+  assert.equal('dpi' in printers[2], false);
+  assert.equal('dpi' in printers[3], false);
+});
+
 test('handles a malformed printer-list envelope without breaking the frontend', async function () {
   const client = loadClient(async function (url) {
     if (url === '../api/backend') return responseJson({ capabilities: ['printers.list'] });

@@ -43,6 +43,7 @@ var (
 	// pattern encoders needed to draw a preview of what was parsed.
 	coreModules = []string{
 		"zplkit/zpl-model.js",
+		"zplkit/zpl-dpi.js", // resolution math + label DPI conversion (pure, no DOM)
 		"zplkit/zpl-parser.js",
 		"zplkit/zpl-generator.js",
 		"zplkit/barcodes.js",
@@ -81,12 +82,12 @@ func variants() []variant {
 		{
 			out:     "zplkit/dist/zplkit-full.js",
 			modules: full,
-			note:    "Vollständig: Parser, Generator, Barcodes, Grafiken (^GF/~DG, Z64), Diff, Glossar, CSV/XLSX, Etikettenbögen, Element-Geometrie/Größenberechnung (ZPLRender - benötigt einen DOM-Canvas, browserseitig), PDF-/GIF-Export, optionale Backend-Schnittstelle (Drucken/Etikettenserver).",
+			note:    "Vollständig: Parser, Generator, Barcodes, DPI-Umrechnung, Grafiken (^GF/~DG, Z64), Diff, Glossar, CSV/XLSX, Etikettenbögen, Element-Geometrie/Größenberechnung (ZPLRender - benötigt einen DOM-Canvas, browserseitig), PDF-/GIF-Export, optionale Backend-Schnittstelle (Drucken/Etikettenserver).",
 		},
 		{
 			out:     "zplkit/dist/zplkit-lite.js",
 			modules: coreModules,
-			note:    "Schlank: nur Parser, Generator, Modell und Barcode-Encoder. Ohne Grafik-Codec, Glossar, Diff, CSV/XLSX, Etikettenbögen - eingebettete Grafiken werden unverändert durchgereicht statt dekodiert.",
+			note:    "Schlank: nur Parser, Generator, Modell, DPI-Umrechnung und Barcode-Encoder. Ohne Grafik-Codec, Glossar, Diff, CSV/XLSX, Etikettenbögen - eingebettete Grafiken werden unverändert durchgereicht statt dekodiert.",
 		},
 	}
 }

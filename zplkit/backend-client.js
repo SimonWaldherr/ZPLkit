@@ -261,19 +261,29 @@
     if (!raw || !Array.isArray(raw.printers)) return [];
     return raw.printers.reduce(function (printers, printer) {
       if (!printer || typeof printer !== 'object' || typeof printer.id !== 'string' || !printer.id || printer.id.trim() !== printer.id) return printers;
-      printers.push({
+      const normalized = {
         id: printer.id,
         name: typeof printer.name === 'string' && printer.name ? printer.name : printer.id,
         type: typeof printer.type === 'string' ? printer.type : '',
         default: printer.default === true,
-      });
+      };
+      // Optional printhead resolution. Only carried through when the backend
+      // states a usable one, so a consumer can tell "no dpi reported" apart
+      // from a guessed default - and so a backend that never reported dpi
+      // keeps producing exactly the descriptor it did before.
+      if (typeof printer.dpi === 'number' && isFinite(printer.dpi) && printer.dpi > 0) {
+        normalized.dpi = printer.dpi;
+      }
+      printers.push(normalized);
       return printers;
     }, []);
   }
 
-  // printers.list: GET api/printers -> {"printers":[{id,name,type}]}
+  // printers.list: GET api/printers -> {"printers":[{id,name,type,dpi?}]}
   // `type` is 'zebra' (accepts raw ZPL directly) or 'generic' (needs an
-  // already-rendered document - see printGeneric).
+  // already-rendered document - see printGeneric). `dpi` is optional; when
+  // present it is the printhead resolution the labels sent there are
+  // expected to be laid out for.
   async function listPrinters() {
     requireCapability('printers.list');
     const res = await fetchWithTimeout(

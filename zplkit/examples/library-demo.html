@@ -173,6 +173,16 @@
       const l = ZPLkit.emptyLabel();
       return !!l.settings && l.settings.widthDots > 0 && Array.isArray(l.elements);
     }],
+    ['Dpi', 'DPI-Umrechnung erh&auml;lt die physische Gr&ouml;&szlig;e', function () {
+      // 203 und 300 dpi sind gerundete Namen f&uuml;r 8 bzw. 12 Punkte/mm,
+      // der Faktor ist also genau 1,5 - nicht 300/203.
+      const l = ZPLkit.parse('^XA^PW680^LL440^FO40,60^A0N,30,0^FDx^FS^XZ');
+      if (ZPLkit.Dpi.scaleFactor(203, 300) !== 1.5) return false;
+      ZPLkit.convertDpi(l, 203, 300);
+      return l.settings.widthDots === 1020 && l.settings.heightDots === 660 &&
+        l.elements[0].x === 60 && l.elements[0].height === 45 &&
+        ZPLkit.Dpi.dotsToMm(l.settings.widthDots, 300) === 85;
+    }],
     ['Graphic', '^GF-Grafik wird dekodiert', function () {
       const l = ZPLkit.parse('^XA^FO10,10^GFA,8,8,1,FFFFFFFFFFFFFFFF^FS^XZ');
       return l.elements.some(function (e) { return e.type === 'graphic'; });

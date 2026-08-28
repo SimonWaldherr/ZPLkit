@@ -16,11 +16,12 @@
   // Bumped by hand on a breaking or notable change to the public surface
   // below. Not tied to the editor's own git history - a consumer pinning a
   // copy of a dist/ bundle cares about this API, not about editor UI changes.
-  const VERSION = '1.1.0';
+  const VERSION = '1.2.0';
 
   // name-in-namespace -> global the module attaches itself to.
   const MODULES = {
     Model: 'ZPLModel',
+    Dpi: 'ZPLDpi',
     Parser: 'ZPLParser',
     Generator: 'ZPLGenerator',
     Barcode: 'ZPLBarcode',
@@ -69,6 +70,16 @@
   ZPLkit.emptyLabel = function () {
     if (!ZPLkit.Model) throw new Error('ZPLkit.emptyLabel: zpl-model.js is not loaded');
     return ZPLkit.Model.defaultLabel();
+  };
+  // Rescales every dot value in `label` from one printer resolution to
+  // another so it keeps its physical size, and returns a report of what
+  // changed (see zpl-dpi.js). Mutates the label unless options.dryRun is
+  // set. Embedded ^GF/~DG bitmaps are NOT rescaled here - rasterizing needs
+  // an image scaler, so they come back as report.graphicTasks for the caller
+  // to apply (ZPL-Studio does this with a canvas).
+  ZPLkit.convertDpi = function (label, fromDpi, toDpi, options) {
+    if (!ZPLkit.Dpi) throw new Error('ZPLkit.convertDpi: zpl-dpi.js is not loaded');
+    return ZPLkit.Dpi.convertLabel(label, fromDpi, toDpi, options);
   };
 
   global.ZPLkit = ZPLkit;

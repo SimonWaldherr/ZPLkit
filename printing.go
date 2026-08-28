@@ -67,10 +67,17 @@ type printerRegistry struct {
 }
 
 type publicPrinter struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Type    string `json:"type"`
-	Default bool   `json:"default,omitempty"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Type string `json:"type"`
+	// Printhead resolution from the registry's optional dpi column, so the
+	// editor can warn when a label's dot values were laid out for a
+	// different resolution than the printer it is about to be sent to (a
+	// 203 dpi label prints at two thirds its intended size on a 300 dpi
+	// head). Omitted when the registry does not state one - the client
+	// treats a missing dpi as "unknown", never as a default.
+	DPI     int  `json:"dpi,omitempty"`
+	Default bool `json:"default,omitempty"`
 }
 
 // loadPrinterRegistry reads the printer CSV. The optional legacy
@@ -375,6 +382,7 @@ func (r *printerRegistry) publicList() []publicPrinter {
 			ID:      p.ID,
 			Name:    p.DisplayName,
 			Type:    "zebra",
+			DPI:     p.DPI,
 			Default: p.ID == r.defaultID,
 		})
 	}

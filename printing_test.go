@@ -45,6 +45,31 @@ func TestLoadPrinterRegistryAcceptsLegacyColumns(t *testing.T) {
 	if !strings.Contains(string(publicJSON), `"default":true`) {
 		t.Fatalf("public printer list does not mark the default: %s", publicJSON)
 	}
+	// The printhead resolution IS published (unlike host/port): the editor
+	// needs it to warn when a label's dot values were laid out for a
+	// different resolution than the printer they are about to be sent to.
+	if !strings.Contains(string(publicJSON), `"dpi":300`) || !strings.Contains(string(publicJSON), `"dpi":203`) {
+		t.Fatalf("public printer list does not publish the printhead resolution: %s", publicJSON)
+	}
+}
+
+// A registry without a dpi column must not invent one: the client treats a
+// missing dpi as "unknown" and stays silent instead of warning against a
+// guessed default.
+func TestPublicPrinterListOmitsUnknownDPI(t *testing.T) {
+	path := writeTestRegistry(t, "name;ip;port\nPRN-A;192.0.2.31;9100\n")
+
+	registry, err := loadPrinterRegistry(path)
+	if err != nil {
+		t.Fatalf("loadPrinterRegistry() error = %v", err)
+	}
+	publicJSON, err := json.Marshal(registry.publicList())
+	if err != nil {
+		t.Fatalf("marshal public list: %v", err)
+	}
+	if strings.Contains(string(publicJSON), `"dpi"`) {
+		t.Fatalf("public printer list reported a dpi that the registry never stated: %s", publicJSON)
+	}
 }
 
 func TestLoadPrinterRegistryRejectsUnsafeConfiguration(t *testing.T) {
