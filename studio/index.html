@@ -32,6 +32,21 @@
     <button id="btnPrintBackend" class="hidden" title="Über den konfigurierten Backend-Dienst drucken" data-i18n="Drucken…" data-i18n-title="Über den konfigurierten Backend-Dienst drucken">Drucken&hellip;</button>
   </div>
 
+  <!-- Multi-label documents: a .zpl file often holds many ^XA…^XZ frames.
+       Collapses to just the "+" button when the file has a single label, so
+       the ordinary case gains no clutter. -->
+  <div class="tb-group label-nav single" id="labelNav">
+    <button id="btnLabelPrev" title="Vorheriges Etikett" aria-label="Vorheriges Etikett" data-i18n-title="Vorheriges Etikett" data-i18n-aria-label="Vorheriges Etikett">&#9664;</button>
+    <span id="labelNavPos" class="label-nav-pos">1/1</span>
+    <button id="btnLabelNext" title="Nächstes Etikett" aria-label="Nächstes Etikett" data-i18n-title="Nächstes Etikett" data-i18n-aria-label="Nächstes Etikett">&#9654;</button>
+    <select id="labelNavSelect" title="Etikett auswählen" data-i18n-title="Etikett auswählen"></select>
+    <button id="btnLabelAdd" title="Neues Etikett hinter dem aktuellen einfügen" data-i18n-title="Neues Etikett hinter dem aktuellen einfügen">+</button>
+    <button id="btnLabelDuplicate" title="Aktuelles Etikett duplizieren" data-i18n-title="Aktuelles Etikett duplizieren">&#10697;</button>
+    <button id="btnLabelMoveUp" title="Aktuelles Etikett nach vorn schieben" aria-label="Etikett nach vorn" data-i18n-title="Aktuelles Etikett nach vorn schieben" data-i18n-aria-label="Etikett nach vorn">&#8676;</button>
+    <button id="btnLabelMoveDown" title="Aktuelles Etikett nach hinten schieben" aria-label="Etikett nach hinten" data-i18n-title="Aktuelles Etikett nach hinten schieben" data-i18n-aria-label="Etikett nach hinten">&#8677;</button>
+    <button id="btnLabelDelete" class="danger" title="Aktuelles Etikett löschen" data-i18n-title="Aktuelles Etikett löschen">&times;</button>
+  </div>
+
   <div class="tb-group">
     <button id="btnUndo" title="Rückgängig (Strg+Z)" aria-label="Rückgängig" data-i18n-title="Rückgängig (Strg+Z)" data-i18n-aria-label="Rückgängig">&#8634;</button>
     <button id="btnRedo" title="Wiederholen (Strg+Y)" aria-label="Wiederholen" data-i18n-title="Wiederholen (Strg+Y)" data-i18n-aria-label="Wiederholen">&#8635;</button>
@@ -185,6 +200,7 @@
 
     <div class="tab-panel" id="tab-zpl" role="tabpanel">
       <p class="hint" data-i18n="Live erzeugter ZPL-Code. Du kannst ihn hier bearbeiten und auf „Übernehmen“ klicken, um das Label neu zu laden – praktisch für ZPL-Befehle, die der visuelle Editor nicht abbildet.">Live erzeugter ZPL-Code. Du kannst ihn hier bearbeiten und auf &bdquo;Übernehmen&ldquo; klicken, um das Label neu zu laden &ndash; praktisch für ZPL-Befehle, die der visuelle Editor nicht abbildet.</p>
+      <p class="hint hidden" id="zplScopeHint"></p>
       <div class="btn-row zpl-view-toggle">
         <button id="btnZplViewCode" class="zpl-view-btn active" aria-pressed="true" data-i18n="Code">Code</button>
         <button id="btnZplViewExplain" class="zpl-view-btn" aria-pressed="false" data-i18n="Erklärte Ansicht – ZPL lernen">Erklärte Ansicht &ndash; ZPL lernen</button>

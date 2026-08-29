@@ -87,6 +87,41 @@
     return { storedGraphics: storedGraphics, text: kept.join('') };
   }
 
+  // A ^XA..^XZ frame that only deletes stored graphics (^ID) is the cleanup
+  // tail real print jobs append after using a downloaded logo - see
+  // generateZPL's own re-emission of exactly that pattern. It carries no
+  // label content, so it must not become an (empty) label of its own.
+  function looksLikeCleanupFrame(block) {
+    // No \b after ^ID: the object name follows the command immediately
+    // ("^IDR:LOGO.GRF"), so there is never a word boundary there - the same
+    // grammar the ^ID case in the parse loop below matches with
+    // /^ID([^,\s]+)/. Requiring one silently turned every cleanup frame into
+    // an empty extra label.
+    return !hasVisualCommands(block) && /\^ID[^,\s]/.test(block);
+  }
+
+  // Cuts a body into its top-level ^XA..^XZ frames. ZPL frames never nest,
+  // so a plain forward scan is enough.
+  //
+  // `between` is whatever sat OUTSIDE a frame (before it, or between it and
+  // the previous one). The single-frame parser used to see that text inline
+  // and keep it in rawTail; splitting frames would otherwise drop it, so it
+  // is handed back for the caller to re-attach rather than silently lost.
+  function splitFrames(body) {
+    const frames = [];
+    let cursor = 0;
+    for (;;) {
+      const xa = body.indexOf('^XA', cursor);
+      if (xa === -1) break;
+      const xz = body.indexOf('^XZ', xa + 3);
+      const end = xz === -1 ? body.length : xz + 3;
+      frames.push({ text: body.slice(xa, end), between: body.slice(cursor, xa) });
+      cursor = end;
+      if (xz === -1) break; // unterminated final frame - nothing sensible follows
+    }
+    return { frames: frames, trailing: body.slice(cursor) };
+  }
+
   function tokenize(body) {
     const chunks = body.split(/(?=[\^~])/).filter(function (s) { return s.length > 0; });
     return chunks.map(function (chunk) {
@@ -145,14 +180,16 @@
     return out;
   }
 
-  function parseZPL(text) {
-    const label = M.defaultLabel();
-    const extracted = extractStoredGraphics(text || '');
-    label.storedGraphics = extracted.storedGraphics;
-    const split = splitPreambleAndBody(extracted.text);
-    label.preamble = split.preamble;
-
-    const tokens = tokenize(split.body);
+  // Parses ONE label's worth of body text into `label`. Split out of
+  // parseZPL so a file holding several ^XA..^XZ frames can be parsed into
+  // several labels without any of this logic being duplicated or diverging.
+  // Everything document-level (the ~DG registry, the driver preamble, the
+  // "which stored graphic is still referenced" pass) deliberately stays
+  // OUTSIDE: those are shared across all frames of a file, and deciding them
+  // per frame would give the wrong answer as soon as label 2 places a logo
+  // that label 1 does not.
+  function parseBodyInto(label, body) {
+    const tokens = tokenize(body);
 
     let pendingOrigin = null;       // { code:'FO'|'FT', x, y, raw }
     let pendingBarcodeDraft = null; // { type, orientation, rawParams } or { unsupported:true, raw }
@@ -530,29 +567,128 @@
     }
 
     label.byState = currentBY;
+    return label;
+  }
 
-    // A ~DG-stored graphic that ISN'T placed anywhere via ^XG in this same
-    // file is real, observed data (found in labels/multitest2.300zpl: a
-    // second stored logo downloaded but never placed in that particular
-    // print job) - generateZPL only re-emits ~DG for names an element still
-    // references (so deleting that element also drops its store, see the
-    // comment there), which would otherwise silently drop this never-placed
-    // entry on the very first save. Flagging it here lets the generator
-    // preserve it unconditionally, since it was never "attached" to any
-    // element to begin with - there's no user deletion to clean up after.
+  // A ~DG-stored graphic that ISN'T placed anywhere via ^XG in this same
+  // file is real, observed data (found in labels/multitest2.300zpl: a
+  // second stored logo downloaded but never placed in that particular
+  // print job) - generateZPL only re-emits ~DG for names an element still
+  // references (so deleting that element also drops its store, see the
+  // comment there), which would otherwise silently drop this never-placed
+  // entry on the very first save. Flagging it here lets the generator
+  // preserve it unconditionally, since it was never "attached" to any
+  // element to begin with - there's no user deletion to clean up after.
+  //
+  // Runs across ALL labels of a document, not per label: a logo that only
+  // label 3 places is still referenced, and flagging it while looking at
+  // label 1 alone would be wrong.
+  function flagUnreferencedGraphics(storedGraphics, labels) {
     const referencedNames = {};
-    label.elements.forEach(function (el) {
-      if (el.type === 'graphic' && el.storedName) referencedNames[el.storedName] = true;
+    labels.forEach(function (label) {
+      label.elements.forEach(function (el) {
+        if (el.type === 'graphic' && el.storedName) referencedNames[el.storedName] = true;
+      });
     });
-    Object.keys(label.storedGraphics).forEach(function (name) {
-      if (!referencedNames[name]) label.storedGraphics[name].preserveUnreferenced = true;
+    Object.keys(storedGraphics).forEach(function (name) {
+      if (!referencedNames[name]) storedGraphics[name].preserveUnreferenced = true;
+    });
+  }
+
+  /* parseDocument(text) -> { labels, preamble, storedGraphics, passthrough }
+
+     A .zpl file is not necessarily one label: a print spool commonly holds
+     dozens of ^XA..^XZ frames back to back. Parsing those into a single
+     label - which is what a lone parseZPL() call did before this existed -
+     stacks every frame's elements on top of each other at the same
+     coordinates and re-emits them as one unprintable frame.
+
+     What is shared across the whole file rather than per label:
+       preamble        the opaque driver-config frame(s) at the top
+       storedGraphics  the ~DG registry (every label sees the same object,
+                       so a logo placed by several labels is stored once)
+       passthrough     frames that are not labels (further driver config,
+                       ^ID cleanup tails) and any text outside a frame, each
+                       tagged with the label index it followed so the
+                       generator can put it back in the same place
+
+     `labels` is never empty: a file with no frame at all still yields one
+     empty label, so every caller can rely on labels[0] existing.          */
+  function parseDocument(text) {
+    const extracted = extractStoredGraphics(text || '');
+    const split = splitPreambleAndBody(extracted.text);
+    const parts = splitFrames(split.body);
+
+    const labels = [];
+    const passthrough = [];
+    let pendingBetween = '';
+
+    // Stored trimmed: the whitespace between two frames is pretty-printing,
+    // not data, and keeping it would make a re-generated file grow a blank
+    // line on every round trip (the generator re-adds exactly one newline,
+    // the same normalization emitRaw applies to rawTail entries).
+    function keepPassthrough(raw) {
+      const trimmed = (raw || '').trim();
+      if (trimmed) passthrough.push({ afterLabelIndex: labels.length - 1, raw: trimmed });
+    }
+
+    parts.frames.forEach(function (frame) {
+      pendingBetween += frame.between;
+      // Driver-config and ^ID-cleanup frames are not labels. They still have
+      // to survive the round trip, so they ride along as passthrough anchored
+      // to the label they followed.
+      if (looksLikeDriverConfig(frame.text) || looksLikeCleanupFrame(frame.text)) {
+        keepPassthrough(pendingBetween + frame.text);
+        pendingBetween = '';
+        return;
+      }
+      const label = M.defaultLabel();
+      label.storedGraphics = extracted.storedGraphics; // shared, not copied
+      parseBodyInto(label, frame.text);
+      labels.push(label);
+      if (pendingBetween.trim()) {
+        // Text outside any frame used to land in rawTail of the one merged
+        // label; keep it attached to the frame it preceded.
+        label.rawTail.unshift({ raw: pendingBetween.trim(), atIndex: 0 });
+      }
+      pendingBetween = '';
     });
 
+    keepPassthrough(pendingBetween + parts.trailing);
+
+    if (!labels.length) {
+      const empty = M.defaultLabel();
+      empty.storedGraphics = extracted.storedGraphics;
+      labels.push(empty);
+    }
+    labels[0].preamble = split.preamble;
+    flagUnreferencedGraphics(extracted.storedGraphics, labels);
+
+    return {
+      labels: labels,
+      preamble: split.preamble,
+      storedGraphics: extracted.storedGraphics,
+      passthrough: passthrough,
+    };
+  }
+
+  /* parseZPL(text) -> the FIRST label of the document.
+
+     Kept as the single-label entry point every existing caller uses. For a
+     multi-frame file it returns frame 1 rather than a merge of all frames -
+     `labelCount` says how many there were, so a caller that cares can notice
+     and switch to parseDocument() instead of being silently handed a third
+     of a spool file. */
+  function parseZPL(text) {
+    const doc = parseDocument(text);
+    const label = doc.labels[0];
+    label.labelCount = doc.labels.length;
     return label;
   }
 
   global.ZPLParser = {
-    parseZPL: parseZPL, splitPreambleAndBody: splitPreambleAndBody, tokenize: tokenize,
+    parseZPL: parseZPL, parseDocument: parseDocument,
+    splitPreambleAndBody: splitPreambleAndBody, splitFrames: splitFrames, tokenize: tokenize,
     extractStoredGraphics: extractStoredGraphics,
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

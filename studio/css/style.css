@@ -172,6 +172,14 @@ input[type=text]:focus, input[type=number]:focus, select:focus, textarea:focus {
 .topbar select:hover { background: var(--ui-navy-deep); }
 .topbar #languageSelect { width: 52px; padding-right: 4px; }
 .zoom-label { min-width: 42px; text-align: center; font-variant-numeric: tabular-nums; }
+/* Multi-label documents. A single-label file only shows the "+" button, so
+   the common case stays as uncluttered as it was before the feature. */
+.label-nav-pos { min-width: 34px; text-align: center; font-variant-numeric: tabular-nums; font-size: 12px; }
+.label-nav select { max-width: 150px; }
+.label-nav.single > :not(#btnLabelAdd) { display: none; }
+.label-nav button { min-width: 26px; }
+.label-nav button.danger { border-color: rgba(255, 255, 255, 0.45) !important; color: #ffd7d4 !important; }
+.label-nav button.danger:hover:not(:disabled) { background: #B3261E; }
 .chk { display: flex; align-items: center; gap: 5px; font-size: 13px; white-space: nowrap; }
 .grid-size-input { width: 52px; padding: 5px 6px; }
 

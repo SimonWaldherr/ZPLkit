@@ -203,9 +203,18 @@
     return out;
   }
 
+  /* generateZPL(label, opts) -> ZPL text for ONE label.
+
+     opts.keepPreamble        false drops the driver-config preamble
+     opts.omitStoredGraphics  true skips both the ~DG download block and the
+                              ^ID cleanup tail. Used by generateDocument,
+                              where the store is shared across every label of
+                              the file and must be emitted exactly once - not
+                              once per frame. */
   function generateZPL(label, opts) {
     opts = opts || {};
     const keepPreamble = opts.keepPreamble !== false;
+    const omitStoredGraphics = !!opts.omitStoredGraphics;
     let out = '';
     if (keepPreamble && label.preamble) out += label.preamble;
 
@@ -231,7 +240,7 @@
         referencedStoredNames.push(name);
       }
     });
-    referencedStoredNames.forEach(function (name) {
+    (omitStoredGraphics ? [] : referencedStoredNames).forEach(function (name) {
       const stored = storedGraphics[name];
       if (!stored || !stored.bytes || !global.ZPLGraphic) return;
       // Same cache (keyed on the storedGraphics registry entry itself - a
@@ -332,7 +341,7 @@
     // Cleanup: a graphic downloaded just for this one print job is often
     // deleted again right after (seen in ~80 real files, one small frame per
     // deleted name) - re-emit that same pattern for anything flagged deleted.
-    referencedStoredNames.forEach(function (name) {
+    (omitStoredGraphics ? [] : referencedStoredNames).forEach(function (name) {
       const stored = storedGraphics[name];
       if (stored && stored.deleteAfterPrint) out += '^XA^ID' + name + '^FS^XZ\n';
     });
@@ -340,8 +349,79 @@
     return out;
   }
 
+  /* generateDocument(doc, opts) -> ZPL text for a whole multi-label file.
+
+     `doc` is what ZPLParser.parseDocument returns, or anything with the same
+     shape: { labels, preamble, storedGraphics, passthrough }.
+
+     The ~DG store and the ^ID cleanup tail are emitted ONCE around all the
+     frames rather than per label - a logo shared by twelve labels is
+     downloaded to the printer once, which is the whole point of ~DG and also
+     what the original file did.
+
+     `passthrough` entries (driver-config frames between labels, ^ID cleanup
+     tails, stray text outside any frame) are re-inserted after the label
+     index they were found behind, so a spool file keeps its original
+     structure instead of having its non-label frames migrate to the end. */
+  function generateDocument(doc, opts) {
+    opts = opts || {};
+    const labels = (doc && doc.labels) || [];
+    if (!labels.length) return '';
+    const keepPreamble = opts.keepPreamble !== false;
+    const storedGraphics = (doc && doc.storedGraphics) || labels[0].storedGraphics || {};
+    const passthrough = (doc && doc.passthrough) || [];
+
+    // One synthetic label carrying only the shared document context, so the
+    // ~DG/^ID emission logic lives in exactly one place instead of being
+    // reimplemented here. Its elements are every label's elements, which is
+    // precisely the set of ^XG references that keeps a store alive.
+    const storeCarrier = {
+      settings: labels[0].settings,
+      preamble: keepPreamble ? (doc.preamble || labels[0].preamble) : null,
+      elements: labels.reduce(function (all, l) { return all.concat(l.elements || []); }, []),
+      rawTail: [],
+      storedGraphics: storedGraphics,
+    };
+    const header = generateZPL(storeCarrier, { keepPreamble: keepPreamble });
+    // Everything before the carrier's own ^XA is preamble + ~DG downloads;
+    // everything from the trailing ^XA^ID... on is the cleanup tail.
+    const frameStart = header.indexOf('^XA\n');
+    const prologue = frameStart === -1 ? '' : header.slice(0, frameStart);
+    const epilogue = cleanupTail(storedGraphics, storeCarrier.elements);
+
+    let out = prologue;
+    function emitPassthroughAfter(index) {
+      passthrough.forEach(function (entry) {
+        if (entry.afterLabelIndex !== index) return;
+        out += entry.raw.replace(/[\r\n]+$/, '') + '\n';
+      });
+    }
+    emitPassthroughAfter(-1);
+    labels.forEach(function (label, i) {
+      out += generateZPL(label, { keepPreamble: false, omitStoredGraphics: true });
+      emitPassthroughAfter(i);
+    });
+    return out + epilogue;
+  }
+
+  function cleanupTail(storedGraphics, elements) {
+    const referenced = {};
+    elements.forEach(function (el) {
+      if (el.type === 'graphic' && el.storedName) referenced[el.storedName] = true;
+    });
+    let out = '';
+    Object.keys(storedGraphics).forEach(function (name) {
+      const stored = storedGraphics[name];
+      if (!stored || !stored.deleteAfterPrint) return;
+      if (!referenced[name] && !stored.preserveUnreferenced) return;
+      out += '^XA^ID' + name + '^FS^XZ\n';
+    });
+    return out;
+  }
+
   global.ZPLGenerator = {
     generateZPL: generateZPL,
+    generateDocument: generateDocument,
     barcodeCommandString: barcodeCommandString,
     generateElement: generateElement,
     // Line ranges from the MOST RECENT generateZPL() call - callers that need

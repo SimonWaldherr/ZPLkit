@@ -173,6 +173,22 @@
       const l = ZPLkit.emptyLabel();
       return !!l.settings && l.settings.widthDots > 0 && Array.isArray(l.elements);
     }],
+    ['Parser', 'Mehrfachdatei wird in einzelne Etiketten zerlegt', function () {
+      const src = '^XA^PW400^LL400^FO20,20^A0N,30,0^FDA^FS^XZ\n' +
+                  '^XA^PW400^LL400^FO20,20^A0N,30,0^FDB^FS^XZ';
+      const doc = ZPLkit.Parser.parseDocument(src);
+      if (doc.labels.length !== 2) return false;
+      if (doc.labels[0].elements[0].text !== 'A' || doc.labels[1].elements[0].text !== 'B') return false;
+      // und stabil wieder zur&uuml;ck
+      const once = ZPLkit.Generator.generateDocument(doc);
+      const twice = ZPLkit.Generator.generateDocument(ZPLkit.Parser.parseDocument(once));
+      return once === twice && (once.match(/\^XA/g) || []).length === 2;
+    }],
+    ['Parser', 'Einzeletikett bleibt byte-identisch', function () {
+      const src = '^XA^PW680^LL440^FO40,40^A0N,30,0^FDeins^FS^XZ';
+      return ZPLkit.Generator.generateDocument(ZPLkit.Parser.parseDocument(src))
+        === ZPLkit.generate(ZPLkit.parse(src));
+    }],
     ['Qr', 'QR-Code wird echt codiert (^BQ)', function () {
       // Kein Platzhalter: ZPLkit.Qr liefert die tats&auml;chliche Modulmatrix.
       const r = ZPLkit.Qr.encodeFieldData('QA,HELLO WORLD', {});

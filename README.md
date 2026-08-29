@@ -8,6 +8,7 @@ Die Anwendung kann als statische Website betrieben werden oder mit dem mitgelief
 
 - Etiketten visuell erstellen und bestehende ZPL-Dateien bearbeiten
 - Text, Barcodes, Formen und Grafiken platzieren
+- Dateien mit mehreren Etiketten (Druck-Spools) öffnen, bearbeiten und speichern
 - QR-Codes (`^BQ`) echt codieren – scanbar in Vorschau und Export (siehe unten)
 - Etiketten zwischen Druckerauflösungen umrechnen (siehe unten)
 - Maße in Dots oder Millimetern eingeben und anzeigen
@@ -15,6 +16,41 @@ Die Anwendung kann als statische Website betrieben werden oder mit dem mitgelief
 - Seriendruck mit CSV- oder XLSX-Daten vorbereiten
 - ZPL-Dateien vergleichen und ZPL-Befehle erläutern
 - ZPLkit als eigenständige Browser- oder CommonJS-Bibliothek einbinden
+
+## Dateien mit mehreren Etiketten
+
+Eine `.zpl`-Datei ist nicht zwangsläufig ein Etikett – ein Druck-Spool enthält
+oft dutzende `^XA…^XZ`-Rahmen hintereinander. Bisher wurden die zu **einem**
+Etikett verschmolzen: alle Rahmen lagen übereinander auf denselben
+Koordinaten und wurden als ein einziger, so nicht druckbarer Rahmen wieder
+ausgegeben.
+
+Der Editor zeigt jetzt eine Etikettenleiste in der Kopfzeile (nur sichtbar,
+wenn die Datei mehr als ein Etikett enthält) mit Blättern, Auswahlliste sowie
+Einfügen, Duplizieren, Verschieben und Löschen. „Herunterladen“ und
+„Speichern“ schreiben immer die ganze Datei; der Tab „ZPL-Code“ zeigt und
+bearbeitet bewusst nur das gewählte Etikett und sagt das auch.
+
+Dateiweit statt pro Etikett behandelt werden der Treiber-Vorspann und die
+`~DG`-Grafiken: ein Logo, das zwölf Etiketten platzieren, wird genau einmal
+zum Drucker geladen. Rahmen, die keine Etiketten sind (weitere
+Treiberkonfiguration, `^ID`-Aufräumrahmen) bleiben an der Stelle erhalten, an
+der sie standen.
+
+Rückgängig/Wiederholen arbeitet weiterhin **pro Etikett** – die Historie kann
+einzelne zurückliegende Änderungen ausblenden und den Rest neu abspielen,
+wofür es auf Dokumentebene keine sinnvolle Entsprechung gibt. Jedes Etikett
+behält seinen eigenen Stapel, Umschalten wirft also nichts weg.
+
+Für die Bibliothek:
+
+```js
+const doc = ZPLkit.Parser.parseDocument(zplText);  // { labels, preamble, storedGraphics, passthrough }
+const out = ZPLkit.Generator.generateDocument(doc);
+```
+
+`ZPLkit.parse()` liefert weiterhin genau ein Etikett – bei einer
+Mehrfachdatei das erste, mit `labelCount` als Hinweis, dass es mehr gab.
 
 ## QR-Codes (`^BQ`)
 

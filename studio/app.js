@@ -41,6 +41,17 @@
     'raster.reason.module-too-small': 'mindestens eine Modulbreite ist sehr klein',
     'raster.reason.inverse-barcode': 'ein inverser Barcode benötigt einen passenden Scanner',
     'raster.reason.edge-quiet-zone': 'ein Barcode liegt zu nah am Labelrand',
+    'doc.position': '{index}/{total}',
+    'doc.option.one': 'Etikett {index} (1 Element)',
+    'doc.option.other': 'Etikett {index} ({count} Elemente)',
+    'doc.opened-multi': 'Die Datei enthält {count} Etiketten – Auswahl oben in der Leiste.',
+    'doc.added': 'Etikett {index} eingefügt.',
+    'doc.duplicated': 'Etikett dupliziert (jetzt Nr. {index}).',
+    'doc.deleted': 'Etikett {index} gelöscht.',
+    'doc.moved': 'Etikett von Position {from} nach {to} verschoben.',
+    'doc.delete-confirm': 'Etikett {index} von {total} löschen? Das lässt sich nicht rückgängig machen.',
+    'doc.zpl-tab-scope': 'Diese Datei enthält {count} Etiketten. Hier steht nur das aktuell gewählte; „Herunterladen“ und „Speichern“ schreiben alle {count}.',
+    'doc.apply-extra-frames': 'Nur das erste von {count} Etiketten übernommen – dieses Feld bearbeitet immer genau das gewählte Etikett.',
     'qr.status': 'Version {version} ({modules}×{modules} Module), Fehlerkorrektur {level}, Maske {mask}, {mode} · {size} bei Modulgröße {module}',
     'qr.mode.numeric': 'numerisch',
     'qr.mode.alphanumeric': 'alphanumerisch',
@@ -84,6 +95,13 @@
   function translateFragment(root) {
     if (window.ZPLStudioI18n) window.ZPLStudioI18n.translateFragment(root);
   }
+  // Count-aware lookup: picks "<key>.one" or "<key>.other" the same way the
+  // history descriptions do, so "1 Element" doesn't read as "1 Elemente".
+  function pluralT(key, count, params) {
+    const merged = Object.assign({ count: count }, params || {});
+    if (window.ZPLStudioI18n) return window.ZPLStudioI18n.plural(key, count, merged);
+    return t(key + (count === 1 ? '.one' : '.other'), merged);
+  }
   function editorLocaleTag() {
     return window.ZPLStudioI18n ? window.ZPLStudioI18n.localeTag() : 'de-DE';
   }
@@ -92,7 +110,9 @@
   // State
   // ---------------------------------------------------------------------
   const state = {
-    label: M.defaultLabel(),
+    label: M.defaultLabel(),      // the label being edited === doc.labels[doc.activeIndex]
+    doc: null,                    // the whole file it belongs to (see loadDocument); seeded at boot
+    labelHistories: [],           // parked undo stacks, one slot per label (see stashActiveHistory)
     selectedIds: [], // multi-selection; order doesn't matter, membership does
     tool: 'select',
     zoom: 0.6,
@@ -292,11 +312,21 @@
     }
     return label;
   }
+  // Undo/redo and the history panel rebuild the label from a snapshot, i.e.
+  // they produce a NEW object. state.doc.labels[activeIndex] has to follow,
+  // or the file written by "Speichern"/"Herunterladen" keeps the pre-undo
+  // version of that label while the editor shows the reverted one.
+  // (state.doc is null only until the boot block seeds it.)
+  function replaceActiveLabel(label) {
+    state.label = label;
+    if (state.doc) state.doc.labels[state.doc.activeIndex] = label;
+  }
+
   function toggleHistoryEnabled(index) {
     const h = state.history[index];
     if (!h || index === 0) return; // base snapshot can't be turned off - nothing to diff it against
     h.enabled = h.enabled === false ? true : false;
-    state.label = computeLabelAt(state.historyIndex);
+    replaceActiveLabel(computeLabelAt(state.historyIndex));
     state.selectedIds = [];
     renderAll();
     renderHistoryPanel();
@@ -310,7 +340,7 @@
     clearTimeout(nudgeHistoryTimer);
     state.drag = null;
     state.historyIndex = index;
-    state.label = computeLabelAt(index);
+    replaceActiveLabel(computeLabelAt(index));
     state.selectedIds = [];
     renderAll();
     updateUndoRedoButtons();
@@ -487,6 +517,25 @@
   // one place a file DOES declare its resolution, so honor it. This only
   // corrects the DECLARED dpi: the dot values in the file are already the
   // right ones for that printer and must not be touched.
+  // Opens a parsed file as a document. Returns a short suffix describing
+  // anything the user should know about it (extra labels, a corrected dpi),
+  // so each caller can append it to its own "loaded" toast rather than
+  // firing a second one.
+  function openParsedDocument(text, fileName, fileHandle, serverFileName) {
+    const doc = window.ZPLParser.parseDocument(text);
+    let declaredDpi = null;
+    doc.labels.forEach(function (label) {
+      label.sourceFileName = fileName || null;
+      const applied = applyFileNameDpi(label, fileName);
+      if (applied) declaredDpi = applied;
+    });
+    loadDocument(doc, fileName, fileHandle, serverFileName);
+    let note = '';
+    if (doc.labels.length > 1) note += ' ' + t('doc.opened-multi', { count: doc.labels.length });
+    if (declaredDpi) note += ' ' + t('dpi.from-filename', { dpi: declaredDpi });
+    return note;
+  }
+
   function applyFileNameDpi(label, fileName) {
     const declared = DPI.dpiFromFileName(fileName);
     if (!declared || !label || !label.settings) return null;
@@ -495,13 +544,60 @@
     return declared;
   }
 
-  function loadLabel(label, fileName, fileHandle, serverFileName) {
-    // Same stale-snapshot hazard undo()/redo() guard against: a nudge
-    // scheduled just before opening a different label must not fire
-    // pushHistory() afterward against whatever label happens to be loaded
-    // by then, inserting a phantom checkpoint into its freshly-seeded history.
+  // ---------------------------------------------------------------------
+  // Documents: a .zpl file can hold many ^XA..^XZ frames
+  //
+  // state.label stays "the label being edited" and every existing call site
+  // keeps working unchanged; state.doc is the file it belongs to. The one
+  // invariant to preserve everywhere below:
+  //
+  //     state.label === state.doc.labels[state.doc.activeIndex]
+  //
+  // Undo/redo deliberately stays PER LABEL rather than per document: the
+  // history engine can exclude an individual past change and replay the rest
+  // (see computeLabelAt), which has no meaningful document-level equivalent.
+  // Each label therefore carries its own stack in labelHistories, so
+  // switching away and back does not throw a label's history away - it just
+  // doesn't undo across a label boundary, the same way it doesn't undo across
+  // opening a different file.
+  // ---------------------------------------------------------------------
+  function singleLabelDocument(label) {
+    return {
+      labels: [label],
+      activeIndex: 0,
+      preamble: label.preamble || null,
+      storedGraphics: label.storedGraphics,
+      passthrough: [],
+    };
+  }
+
+  function labelCount() { return (state.doc && state.doc.labels.length) || 1; }
+  function activeIndex() { return (state.doc && state.doc.activeIndex) || 0; }
+
+  // Parks the live history stack on the label it belongs to, so switching
+  // back to it later resumes rather than restarts.
+  function stashActiveHistory() {
+    if (!state.doc) return;
+    state.labelHistories[state.doc.activeIndex] = { history: state.history, historyIndex: state.historyIndex };
+  }
+  function adoptHistoryFor(index) {
+    const stashed = state.labelHistories[index];
+    if (stashed) {
+      state.history = stashed.history;
+      state.historyIndex = stashed.historyIndex;
+      return;
+    }
+    state.history = [];
+    state.historyIndex = -1;
+    pushHistory(); // seed this label's own base snapshot
+  }
+
+  function loadDocument(doc, fileName, fileHandle, serverFileName) {
     clearTimeout(nudgeHistoryTimer);
-    state.label = label;
+    state.doc = doc;
+    state.doc.activeIndex = 0;
+    state.labelHistories = [];
+    state.label = doc.labels[0];
     state.selectedIds = [];
     state.currentFileName = fileName || null;
     state.currentFileHandle = fileHandle || null;
@@ -509,10 +605,133 @@
     state.history = [];
     state.historyIndex = -1;
     pushHistory();
+    updateLabelNav();
     fitZoom();
     renderAll();
     $('btnSave').disabled = !hasSaveTarget();
   }
+
+  function setActiveLabel(index) {
+    if (!state.doc || index < 0 || index >= state.doc.labels.length || index === state.doc.activeIndex) return;
+    clearTimeout(nudgeHistoryTimer);
+    stashActiveHistory();
+    state.doc.activeIndex = index;
+    state.label = state.doc.labels[index];
+    state.selectedIds = [];
+    state.drag = null;
+    adoptHistoryFor(index);
+    updateLabelNav();
+    fitZoom();
+    renderAll();
+    updateUndoRedoButtons();
+  }
+
+  // A new label inherits the current one's settings (size, dpi, media) -
+  // labels in one file are nearly always the same stock, and starting from
+  // the model default would silently produce a differently-sized frame.
+  function insertLabel(index, label) {
+    stashActiveHistory();
+    state.doc.labels.splice(index, 0, label);
+    state.labelHistories.splice(index, 0, null);
+    state.doc.activeIndex = index;
+    state.label = label;
+    state.selectedIds = [];
+    adoptHistoryFor(index);
+    updateLabelNav();
+    renderAll();
+    updateUndoRedoButtons();
+    updateZplSource();
+  }
+
+  function addLabel() {
+    const fresh = M.defaultLabel();
+    fresh.settings = M.clone(state.label.settings);
+    fresh.settings.note = '';
+    fresh.storedGraphics = state.doc.storedGraphics; // shared registry, same as the parser builds
+    fresh.byState = M.clone(state.label.byState);
+    insertLabel(activeIndex() + 1, fresh);
+    showToast(t('doc.added', { index: activeIndex() + 1 }));
+  }
+
+  function duplicateActiveLabel() {
+    const copy = cloneLabel(state.label);
+    // cloneLabel deep-copies everything including element ids; fresh ids keep
+    // per-element state (selection, caches, history diffs) from colliding
+    // across two labels that are otherwise identical.
+    copy.elements.forEach(function (el) { el.id = M.uid(el.type); });
+    copy.preamble = null; // the preamble belongs to the file, not to a copy
+    copy.storedGraphics = state.doc.storedGraphics;
+    insertLabel(activeIndex() + 1, copy);
+    showToast(t('doc.duplicated', { index: activeIndex() + 1 }));
+  }
+
+  function deleteActiveLabel() {
+    if (labelCount() <= 1) return;
+    if (!confirm(t('doc.delete-confirm', { index: activeIndex() + 1, total: labelCount() }))) return;
+    const removed = state.doc.activeIndex;
+    state.doc.labels.splice(removed, 1);
+    state.labelHistories.splice(removed, 1);
+    // Passthrough chunks are anchored to the label they followed; drop the
+    // ones belonging to the deleted label and shift the rest, otherwise a
+    // driver-config frame would migrate to a different position in the file.
+    state.doc.passthrough = (state.doc.passthrough || []).filter(function (p) {
+      return p.afterLabelIndex !== removed;
+    }).map(function (p) {
+      return p.afterLabelIndex > removed ? { afterLabelIndex: p.afterLabelIndex - 1, raw: p.raw } : p;
+    });
+    const next = Math.min(removed, state.doc.labels.length - 1);
+    state.doc.activeIndex = next;
+    state.label = state.doc.labels[next];
+    state.selectedIds = [];
+    adoptHistoryFor(next);
+    updateLabelNav();
+    fitZoom();
+    renderAll();
+    updateUndoRedoButtons();
+    showToast(t('doc.deleted', { index: removed + 1 }));
+  }
+
+  function moveActiveLabel(delta) {
+    const from = activeIndex(), to = from + delta;
+    if (!state.doc || to < 0 || to >= state.doc.labels.length) return;
+    stashActiveHistory();
+    const labels = state.doc.labels;
+    labels.splice(to, 0, labels.splice(from, 1)[0]);
+    state.labelHistories.splice(to, 0, state.labelHistories.splice(from, 1)[0]);
+    state.doc.activeIndex = to;
+    updateLabelNav();
+    updateZplSource();
+    showToast(t('doc.moved', { from: from + 1, to: to + 1 }));
+  }
+
+  // The whole file, every frame - what "Speichern"/"Herunterladen" write.
+  // The ZPL-Code tab deliberately shows only the ACTIVE frame (see its own
+  // hint), because per-element line highlighting has no meaning across a
+  // document.
+  function documentText() {
+    return window.ZPLGenerator.generateDocument(state.doc, { keepPreamble: state.keepPreamble !== false });
+  }
+
+  function updateLabelNav() {
+    const bar = $('labelNav');
+    if (!bar) return;
+    const total = labelCount();
+    bar.classList.toggle('single', total <= 1);
+    $('labelNavPos').textContent = t('doc.position', { index: activeIndex() + 1, total: total });
+    $('btnLabelPrev').disabled = activeIndex() <= 0;
+    $('btnLabelNext').disabled = activeIndex() >= total - 1;
+    $('btnLabelDelete').disabled = total <= 1;
+    const sel = $('labelNavSelect');
+    sel.innerHTML = state.doc.labels.map(function (l, i) {
+      return '<option value="' + i + '"' + (i === activeIndex() ? ' selected' : '') + '>' +
+        escapeHtml(pluralT('doc.option', (l.elements || []).length, { index: i + 1 })) + '</option>';
+    }).join('');
+  }
+
+  function loadLabel(label, fileName, fileHandle, serverFileName) {
+    loadDocument(singleLabelDocument(label), fileName, fileHandle, serverFileName);
+  }
+
 
   // ---------------------------------------------------------------------
   // Selection (multi-select: Ctrl/Cmd-click to toggle, rectangle marquee)
@@ -2927,6 +3146,16 @@
   function updateZplSource() {
     if (document.activeElement === $('zplSource')) return;
     $('zplSource').value = window.ZPLGenerator.generateZPL(state.label, { keepPreamble: state.keepPreamble !== false });
+    // Deliberately the ACTIVE frame only: the per-element line highlighting
+    // and "Übernehmen" below both work on one label, and there is no sane
+    // meaning for either across a whole document. Say so rather than let
+    // someone conclude the other labels were lost.
+    const scope = $('zplScopeHint');
+    if (scope) {
+      const multi = labelCount() > 1;
+      scope.classList.toggle('hidden', !multi);
+      if (multi) scope.textContent = t('doc.zpl-tab-scope', { count: labelCount() });
+    }
     if (state.zplExplainView) renderZplExplainView();
     updateZplHighlight();
   }
@@ -3060,12 +3289,22 @@
 
   $('btnApplyZpl').addEventListener('click', function () {
     try {
-      const parsed = window.ZPLParser.parseZPL($('zplSource').value);
+      // Replaces the ACTIVE label only - the textarea showed exactly that
+      // frame (see updateZplSource's scope hint), so replacing the whole
+      // document here would silently delete the other labels.
+      const doc = window.ZPLParser.parseDocument($('zplSource').value);
+      const parsed = doc.labels[0];
+      parsed.storedGraphics = state.doc.storedGraphics;
+      state.doc.labels[state.doc.activeIndex] = parsed;
       state.label = parsed;
       state.selectedIds = [];
       renderAll();
       pushHistory();
-      showToast('ZPL-Code übernommen.');
+      // Pasting a multi-frame block into a single label's textarea is a
+      // plausible mistake; the extra frames were not applied, so say so.
+      showToast(doc.labels.length > 1
+        ? t('doc.apply-extra-frames', { count: doc.labels.length })
+        : 'ZPL-Code übernommen.');
     } catch (e) {
       showToast('Konnte ZPL-Code nicht lesen: ' + e.message, true);
     }
@@ -3099,6 +3338,7 @@
     updateZplSource();
     renderMergePreview(); // no-op unless the Seriendruck tab is the active one - see its own guard
     renderLayersPanel(); // no-op unless the Ebenen tab is the active one - see its own guard
+    updateLabelNav();    // element counts in the label picker follow every edit
     $('btnSave').disabled = !hasSaveTarget();
     localizeDynamicPanels();
     localizeIdleStatuses();
@@ -3749,6 +3989,16 @@
   $('btnZoomIn').addEventListener('click', function () { state.zoom = Math.min(4, state.zoom * 1.2); $('zoomLabel').textContent = Math.round(state.zoom * 100) + '%'; drawLabel(); });
   $('btnZoomOut').addEventListener('click', function () { state.zoom = Math.max(0.1, state.zoom / 1.2); $('zoomLabel').textContent = Math.round(state.zoom * 100) + '%'; drawLabel(); });
   $('btnZoomFit').addEventListener('click', function () { fitZoom(); drawLabel(); });
+
+  // --- Multi-label navigation -------------------------------------------
+  $('btnLabelPrev').addEventListener('click', function () { setActiveLabel(activeIndex() - 1); });
+  $('btnLabelNext').addEventListener('click', function () { setActiveLabel(activeIndex() + 1); });
+  $('labelNavSelect').addEventListener('change', function (e) { setActiveLabel(parseInt(e.target.value, 10) || 0); });
+  $('btnLabelAdd').addEventListener('click', addLabel);
+  $('btnLabelDuplicate').addEventListener('click', duplicateActiveLabel);
+  $('btnLabelMoveUp').addEventListener('click', function () { moveActiveLabel(-1); });
+  $('btnLabelMoveDown').addEventListener('click', function () { moveActiveLabel(1); });
+  $('btnLabelDelete').addEventListener('click', deleteActiveLabel);
   $('btnUndo').addEventListener('click', undo);
   $('btnRedo').addEventListener('click', redo);
   $('chkSampleData').addEventListener('change', function (e) { state.sampleDataMode = e.target.checked; drawLabel(); });
@@ -3950,12 +4200,8 @@
     const reader = new FileReader();
     reader.onload = function () {
       try {
-        const label = window.ZPLParser.parseZPL(reader.result);
-        label.sourceFileName = file.name;
-        const declaredDpi = applyFileNameDpi(label, file.name);
-        loadLabel(label, file.name, null);
-        showToast('„' + file.name + '“ geladen (nur Download zum Speichern, kein Ordnerzugriff).' +
-          (declaredDpi ? ' ' + t('dpi.from-filename', { dpi: declaredDpi }) : ''));
+        const note = openParsedDocument(reader.result, file.name, null, null);
+        showToast('„' + file.name + '“ geladen (nur Download zum Speichern, kein Ordnerzugriff).' + note);
       } catch (err) {
         showToast('Konnte Datei nicht lesen: ' + err.message, true);
       }
@@ -3968,7 +4214,7 @@
   });
 
   $('btnDownload').addEventListener('click', function () {
-    const text = window.ZPLGenerator.generateZPL(state.label, { keepPreamble: state.keepPreamble !== false });
+    const text = documentText();
     const name = state.currentFileName || 'label.zpl';
     // A `.200zpl`/`.300zpl` name states the resolution its dot values are
     // for. After a DPI conversion that claim would be wrong, so the download
@@ -4514,7 +4760,7 @@
   }
 
   $('btnSave').addEventListener('click', async function () {
-    const text = window.ZPLGenerator.generateZPL(state.label, { keepPreamble: state.keepPreamble !== false });
+    const text = documentText();
     // Server-opened file: PUT it back through the templates API. A failure
     // here (network blip, server briefly down) is likely transient, unlike
     // a broken local file handle below, so the save target is kept intact
@@ -4796,11 +5042,9 @@
       async function openEntry() {
         try {
           const text = await entry.readText();
-          const label = window.ZPLParser.parseZPL(text);
-          label.sourceFileName = entry.name;
-          const declaredDpi = applyFileNameDpi(label, entry.name);
-          loadLabel(label, entry.name, entry.handle, state.librarySource === 'server' ? entry.name : null);
-          if (declaredDpi) showToast(t('dpi.from-filename', { dpi: declaredDpi }));
+          const note = openParsedDocument(text, entry.name, entry.handle,
+            state.librarySource === 'server' ? entry.name : null);
+          if (note.trim()) showToast(note.trim());
           await refreshLibraryList();
         } catch (err) {
           showToast('Konnte „' + entry.name + '“ nicht laden: ' + err.message, true);
@@ -5670,6 +5914,7 @@
     buildMergeSheetPresetOptions();
     buildMergeCustomSheetFields();
     renderAll();
+    updateLabelNav();
     renderHistoryPanel();
     updateUndoRedoButtons();
   });
@@ -5677,6 +5922,11 @@
   // ---------------------------------------------------------------------
   // Boot
   // ---------------------------------------------------------------------
+  // state.label was created inline with the state object; wrap it in a
+  // document so the invariant "state.label === doc.labels[activeIndex]"
+  // holds from the very first frame rather than only after the first open.
+  state.doc = singleLabelDocument(state.label);
+  updateLabelNav();
   window.addEventListener('resize', function () { fitZoom(); drawLabel(); });
   loadLabel(M.defaultLabel(), null, null);
 
