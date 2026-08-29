@@ -171,6 +171,11 @@
     ean13: [{ key: 'height', kind: 'length' }],
     upca: [{ key: 'height', kind: 'length' }],
     datamatrix: [{ key: 'height', kind: 'length' }],
+    // QR sizes itself through ^BQ's magnification (module size in dots),
+    // exactly like Aztec - it has no `height` parameter at all, so the
+    // generic fallback below would look for one, find nothing, and leave a
+    // converted QR at its old physical size without saying a word.
+    qrcode: [{ key: 'magnification', kind: 'step' }],
     aztec: [{ key: 'magnification', kind: 'step' }],
     maxicode: [],
   };
@@ -366,7 +371,7 @@
             const scaled = scaleValue(params[f.key], f.kind, factor);
             if (f.key === 'height' && f.kind === 'length') barcodeHeights.push({ from: params[f.key], to: scaled.value });
             if (scaled.clamped) {
-              warn('barcode-step-clamped', 'Mindestens ein 2D-Code (Aztec) konnte nicht vollständig umgerechnet werden – seine Vergrößerung ist auf 1–10 begrenzt.');
+              warn('barcode-step-clamped', 'Mindestens ein 2D-Code (QR oder Aztec) konnte nicht vollständig umgerechnet werden – seine Vergrößerung ist auf 1–10 begrenzt.');
             }
             if (!dryRun) params[f.key] = scaled.value;
           });

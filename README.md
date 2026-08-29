@@ -8,12 +8,40 @@ Die Anwendung kann als statische Website betrieben werden oder mit dem mitgelief
 
 - Etiketten visuell erstellen und bestehende ZPL-Dateien bearbeiten
 - Text, Barcodes, Formen und Grafiken platzieren
+- QR-Codes (`^BQ`) echt codieren – scanbar in Vorschau und Export (siehe unten)
 - Etiketten zwischen Druckerauflösungen umrechnen (siehe unten)
 - Maße in Dots oder Millimetern eingeben und anzeigen
 - ZPL sowie PNG, JPG, GIF und PDF exportieren
 - Seriendruck mit CSV- oder XLSX-Daten vorbereiten
 - ZPL-Dateien vergleichen und ZPL-Befehle erläutern
 - ZPLkit als eigenständige Browser- oder CommonJS-Bibliothek einbinden
+
+## QR-Codes (`^BQ`)
+
+QR ist die einzige 2D-Symbologie hier mit einem **echten Encoder**
+([`zplkit/qrcode.js`](zplkit/qrcode.js)): Versionen 1–40, Fehlerkorrektur
+L/M/Q/H, numerisch/alphanumerisch/Byte (UTF-8) und alle acht Maskenmuster mit
+der normgemäßen Auswahl über Strafpunkte. Die Vorschau und **jeder
+Rasterexport (PNG/PDF/GIF) enthalten damit ein tatsächlich scanbares Symbol**
+– vorher wurde ein `^BQ` unverändert als Rohtext durchgereicht, war im Editor
+unsichtbar und blockierte den kompletten Bildexport.
+
+Data Matrix, Aztec und MaxiCode bleiben bewusst klar gekennzeichnete
+Platzhalter; für sie fehlt ein Encoder.
+
+ZPL verteilt die QR-Einstellungen auf zwei Stellen, und das tut der Editor
+auch: Modell, Modulgröße und Maske stehen im `^BQ`-Befehl, die
+Fehlerkorrekturstufe darf zusätzlich im Datenfeld stehen
+(`^FDQA,Inhalt` = Stufe Q, automatischer Modus). Steht dort eine Stufe, hat
+sie Vorrang – genau wie beim Drucker. Der manuelle Modus mit eigenen
+Zeichenmodi (`^FDHM,N0123456789`, `^FDMM,AHELLO,B0004test`) wird ebenfalls
+gelesen. Das Datenfeld bleibt im Modell unverändert erhalten, damit der
+Roundtrip verlustfrei bleibt.
+
+Zwei Dinge, die `^BY` betreffen: Modulbreite und Verhältnis wirken sich auf
+einen QR-Code **nicht** aus – seine Größe kommt allein aus der Vergrößerung im
+`^BQ`. Der Editor blendet die beiden Felder für QR deshalb aus, ebenso das
+Ausrichtungsfeld (Zebra dokumentiert es als festen Wert).
 
 ## Druckerauflösung (DPI) umrechnen
 
@@ -122,8 +150,13 @@ go test ./...
 Die DOM-freien JavaScript-Tests unter `test/` laufen direkt mit Node:
 
 ```sh
-node test/dpi-convert.test.js
+node test/qrcode.test.js
 ```
+
+Die QR-Tests prüfen die Codewort-Tabellen für alle 160 Versions-/Stufen-
+Kombinationen gegen die veröffentlichte Kapazitätstabelle und vergleichen
+vollständige Modulmatrizen gegen Symbole, die ein unabhängiger Decoder
+zurückgelesen hat.
 
 Wird eine Bibliotheksdatei in `zplkit/` geändert, aktualisiere die Bundles mit:
 

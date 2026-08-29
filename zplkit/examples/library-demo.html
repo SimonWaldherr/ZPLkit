@@ -173,6 +173,23 @@
       const l = ZPLkit.emptyLabel();
       return !!l.settings && l.settings.widthDots > 0 && Array.isArray(l.elements);
     }],
+    ['Qr', 'QR-Code wird echt codiert (^BQ)', function () {
+      // Kein Platzhalter: ZPLkit.Qr liefert die tats&auml;chliche Modulmatrix.
+      const r = ZPLkit.Qr.encodeFieldData('QA,HELLO WORLD', {});
+      if (!r.ok || r.version !== 1 || r.size !== 21 || r.ecLevel !== 'Q') return false;
+      // Pflicht-Funktionsmuster: dunkles Modul unten links neben dem Finder.
+      if (r.modules[(r.size - 8) * r.size + 8] !== 1) return false;
+      // Die Tabellen des Encoders m&uuml;ssen f&uuml;r alle 160 Versionen/Stufen zueinander passen.
+      return ZPLkit.Qr.assertBlockStructure().length === 0;
+    }],
+    ['Qr', '^BQ wird als Element geparst statt als Rohtext', function () {
+      const l = ZPLkit.parse('^XA^FO40,40^BQN,2,6^FDQA,https://example.com^FS^XZ');
+      const qr = l.elements.filter(function (e) { return e.barcodeType === 'qrcode'; });
+      if (qr.length !== 1 || qr[0].data !== 'QA,https://example.com') return false;
+      // und wieder verlustfrei zur&uuml;ck (stabil bei erneutem Durchlauf)
+      const once = ZPLkit.generate(l);
+      return ZPLkit.generate(ZPLkit.parse(once)) === once && once.indexOf('^BQN,2,6') !== -1;
+    }],
     ['Dpi', 'DPI-Umrechnung erh&auml;lt die physische Gr&ouml;&szlig;e', function () {
       // 203 und 300 dpi sind gerundete Namen f&uuml;r 8 bzw. 12 Punkte/mm,
       // der Faktor ist also genau 1,5 - nicht 300/203.

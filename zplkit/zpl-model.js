@@ -137,6 +137,34 @@
       ],
       previewEncoder: 'upca',
     },
+    // QR Code (2D) - the one 2D symbology here with a REAL encoder
+    // (zplkit/qrcode.js), so its preview and every raster export carry a
+    // genuinely scannable symbol rather than a placeholder. That matters
+    // because ^BQ is common on real labels and a placeholder would block the
+    // whole PNG/PDF path (see inspectRasterOutput's 'placeholder-barcode').
+    //
+    // Note the split responsibility ZPL imposes: the error-correction level
+    // and the input mode live in the ^FD DATA ("QA,payload"), not only in
+    // these command parameters - see ZPLQr.parseFieldData. The element's
+    // `data` therefore stays the verbatim field text, exactly like every
+    // other symbology, and the renderer splits it.
+    qrcode: {
+      label: 'QR-Code (2D)', command: 'Q',
+      params: [
+        { key: 'orientation', kind: 'orientation', default: 'N' }, // fixed per Zebra's manual; ^FW does not rotate a QR
+        { key: 'model', kind: 'int', default: 2 },                 // 1 = original spec, 2 = enhanced (the usual choice)
+        { key: 'magnification', kind: 'int', default: 6 },         // module size in dots (1-10); Zebra's own default depends on dpi
+        { key: 'errorCorrection', default: 'Q' },                  // H/Q/M/L - the ^FD prefix wins over this when it states one
+        { key: 'maskValue', kind: 'int', default: 7 },             // 0-7; in practice left alone
+      ],
+      // Deliberately null: a QR encoder returns a module MATRIX, not the
+      // bar/space run lengths every ZPLBarcode encoder returns, so routing
+      // it through the 1D dispatch would silently produce nonsense. QR is
+      // handled explicitly wherever it matters (ZPLRender.qrEncode/qrWH/
+      // drawQrElement), which also keeps the big encoder out of the lite
+      // bundle without breaking anything.
+      previewEncoder: null,
+    },
     // Data Matrix (2D) - used for GS1/transport-label payloads (confirmed real
     // usage: matlabel*.zpl). No real ECC200 encoder here (Reed-Solomon +
     // module placement is a much larger undertaking) - structurally editable

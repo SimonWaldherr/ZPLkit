@@ -82,13 +82,14 @@
     return type === 'box' || type === 'graphic' || type === 'circle' || type === 'line' || type === 'ellipse';
   }
 
-  // MaxiCode (^BD) is a barcode type but has no orientation parameter at all
-  // (see BARCODE_TYPES.maxicode) - unlike every other barcode/text element,
-  // so it shouldn't get a rotate handle that would visually spin the
-  // placeholder in the editor without any matching effect on the printed label.
+  // MaxiCode (^BD) has no orientation parameter at all, and ^BQ's first
+  // parameter is documented by Zebra as a fixed value that ^FW does not
+  // affect (see zpl-glossary.js's ^BQ entry) - so neither should get a
+  // rotate handle that would spin the symbol on screen with no matching
+  // effect on the printed label.
   function elementSupportsOrientation(el) {
     if (el.type === 'text') return true;
-    return el.type === 'barcode' && el.barcodeType !== 'maxicode';
+    return el.type === 'barcode' && el.barcodeType !== 'maxicode' && el.barcodeType !== 'qrcode';
   }
 
   // A ^XG-placed stored graphic can only be sized by its integer 1-10
@@ -265,6 +266,53 @@
   }
 
   // ---------------------------------------------------------------------
+  // QR Code (^BQ) - the one 2D symbology with a real encoder (zplkit/
+  // qrcode.js), so unlike the three above this is an actual symbol, not an
+  // estimate. Its module count depends on the payload, so the size can only
+  // be known by encoding - hence the cache: elementLocalSize/getBounds/
+  // hit-testing/drawing all ask for the same symbol many times per frame.
+  // ---------------------------------------------------------------------
+  const qrEncodeCache = new WeakMap();
+
+  function qrModuleDots(el) {
+    // ^BQ's magnification IS the module size in dots (1-10), unlike ^BY's
+    // module width, which has no effect on a QR at all.
+    const n = Number(el && el.params && el.params.magnification);
+    return Math.max(1, Math.min(10, isFinite(n) ? Math.round(n) : 6));
+  }
+
+  function qrEncode(el, opts) {
+    const o = opt(opts);
+    if (!global.ZPLQr) return { ok: false, error: 'QR-Encoder nicht geladen', size: 0, modules: null };
+    // The ^FD text is passed VERBATIM - its "QA," style prefix is part of
+    // ZPL's QR grammar, not payload, and ZPLQr.encodeFieldData owns that
+    // split (stripBarcodeControlPrefix only knows Code 128's >: shortcuts).
+    const data = o.resolveText(el.data || '');
+    const params = el.params || {};
+    const key = data + '|' + params.errorCorrection + '|' + params.maskValue + '|' + params.model;
+    const cached = qrEncodeCache.get(el);
+    if (cached && cached.key === key) return cached.result;
+    const result = global.ZPLQr.encodeFieldData(data, {
+      ecLevel: params.errorCorrection,
+      // ZPL's default mask parameter is 7, which in Zebra's numbering means
+      // "let the encoder choose" rather than literally mask 7 - so only a
+      // value below 7 is treated as an explicit override.
+      mask: (params.maskValue != null && params.maskValue !== '' && Number(params.maskValue) < 7) ? Number(params.maskValue) : null,
+    });
+    qrEncodeCache.set(el, { key: key, result: result });
+    return result;
+  }
+
+  function qrWH(el, opts) {
+    const moduleDots = qrModuleDots(el);
+    const enc = qrEncode(el, opts);
+    // A failed encode still needs a box to draw the error into; version 1's
+    // 21 modules is the smallest a real symbol could ever be.
+    const modules = enc.ok ? enc.size : 21;
+    return { w: modules * moduleDots, h: modules * moduleDots, modules: modules, moduleDots: moduleDots, enc: enc };
+  }
+
+  // ---------------------------------------------------------------------
   // Per-element bounding box
   // ---------------------------------------------------------------------
   // Per-type size in the element's own LOCAL frame (origin at 0,0 - for FT-
@@ -298,6 +346,10 @@
     if (el.type === 'barcode' && el.barcodeType === 'maxicode') {
       const mc = maxicodeWH(o);
       return { x: 0, y: el.origin === 'FT' ? -mc.h : 0, w: mc.w, h: mc.h };
+    }
+    if (el.type === 'barcode' && el.barcodeType === 'qrcode') {
+      const qr = qrWH(el, o);
+      return { x: 0, y: el.origin === 'FT' ? -qr.h : 0, w: qr.w, h: qr.h };
     }
     if (el.type === 'barcode') {
       const enc = barcodeEncode(el, o);
@@ -404,6 +456,28 @@
         return;
       }
 
+      // QR is the one 2D symbology rendered from a real encoder, so it is
+      // safe to rasterize - but none of the 1D reasoning below applies to
+      // it: its size comes from ^BQ's magnification, not ^BY's module
+      // width, and its quiet zone is defined by the spec as 4 modules
+      // (rather than the 10-11 a 1D code needs).
+      if (el.barcodeType === 'qrcode') {
+        const qr = qrWH(el, o);
+        if (!qr.enc.ok) {
+          blockers.push({ code: 'invalid-barcode', barcodeType: el.barcodeType, error: qr.enc.error || '' });
+          return;
+        }
+        const qrMmPerModule = qr.moduleDots / o.dpi * 25.4;
+        if (qrMmPerModule < 0.19) {
+          warnings.push({ code: 'module-too-small', barcodeType: el.barcodeType, millimeters: qrMmPerModule });
+        }
+        if (el.fieldReverse) {
+          warnings.push({ code: 'inverse-barcode', barcodeType: el.barcodeType });
+        }
+        checkEdgeQuietZone(el, 4 * qr.moduleDots);
+        return;
+      }
+
       // These ZPL prefixes change Code 128's invocation/data semantics. The
       // lightweight 1D encoder intentionally strips them for an editor
       // preview, so using that preview as final raster output would encode a
@@ -429,10 +503,15 @@
         warnings.push({ code: 'inverse-barcode', barcodeType: el.barcodeType });
       }
 
-      // A quiet zone is white space around the symbol; we can reliably catch
-      // a code placed too close to the label edge here. We deliberately do
-      // not claim to detect overlaps with arbitrary neighboring artwork.
-      const quietZone = (el.barcodeType === 'ean13' || el.barcodeType === 'upca' ? 11 : 10) * mw;
+      checkEdgeQuietZone(el, (el.barcodeType === 'ean13' || el.barcodeType === 'upca' ? 11 : 10) * mw);
+    });
+
+    // A quiet zone is white space around the symbol; we can reliably catch a
+    // code placed too close to the label edge here. We deliberately do not
+    // claim to detect overlaps with arbitrary neighboring artwork. Shared by
+    // the 1D path and QR, which need different zone widths but the identical
+    // edge test.
+    function checkEdgeQuietZone(el, quietZone) {
       const aabb = getAABB(el, o);
       const labelWidth = label && label.settings && label.settings.widthDots;
       const labelHeight = label && label.settings && label.settings.heightDots;
@@ -441,7 +520,7 @@
            aabb.x + aabb.w > labelWidth - quietZone || aabb.y + aabb.h > labelHeight - quietZone)) {
         warnings.push({ code: 'edge-quiet-zone', barcodeType: el.barcodeType, dots: quietZone });
       }
-    });
+    }
 
     return { blockers: blockers, warnings: warnings, ok: blockers.length === 0 };
   }
@@ -682,6 +761,61 @@
     }
   }
 
+  // Draws the real QR module matrix. Module edges are snapped to whole
+  // device pixels the same way the 1D renderer snaps bar edges
+  // (renderedRunWidthPx): a fractional module boundary makes the browser
+  // anti-alias the gap between two dark modules into grey, which is exactly
+  // what stops a scanner resolving them.
+  function drawQrElement(ctx, el, opts) {
+    const o = opt(opts);
+    const qr = qrWH(el, o);
+    const originY = el.origin === 'FT' ? -qr.h : 0;
+    ctx.save();
+    ctx.translate(el.x, el.y);
+
+    if (!qr.enc.ok) {
+      // Same treatment as an invalid 1D barcode: say so on the canvas
+      // rather than drawing nothing or, worse, something that looks valid.
+      ctx.fillStyle = '#B3261E';
+      ctx.font = Math.max(10, 12 / o.zoom) + 'px sans-serif';
+      ctx.textBaseline = 'top';
+      ctx.fillText('QR-Fehler: ' + qr.enc.error, 0, originY);
+      ctx.strokeStyle = '#B3261E';
+      ctx.setLineDash([4, 3]);
+      ctx.strokeRect(0, originY, qr.w, qr.h);
+      ctx.setLineDash([]);
+      ctx.restore();
+      return;
+    }
+
+    const size = qr.enc.size;
+    const modules = qr.enc.modules;
+    const step = qr.moduleDots;
+    // ^FR prints the field inverted: paint the symbol's own area black and
+    // the dark modules white, rather than inverting the bits (which would
+    // produce a symbol no reader recognises).
+    const reversed = !!el.fieldReverse;
+    if (reversed) {
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, originY, qr.w, qr.h);
+    }
+    ctx.fillStyle = reversed ? '#fff' : '#000';
+    for (let y = 0; y < size; y++) {
+      const top = originY + y * step;
+      let x = 0;
+      while (x < size) {
+        if (!modules[y * size + x]) { x++; continue; }
+        // Coalesce a horizontal run into one fillRect: far fewer canvas
+        // calls, and no seam between adjacent modules.
+        let run = 1;
+        while (x + run < size && modules[y * size + x + run]) run++;
+        ctx.fillRect(x * step, top, run * step, step);
+        x += run;
+      }
+    }
+    ctx.restore();
+  }
+
   function drawBarcodeElement(ctx, el, b, opts) {
     const o = opt(opts);
     if (el.barcodeType === 'datamatrix') {
@@ -697,6 +831,10 @@
       // size regardless) - ~30 modules across its ~1 inch width is a
       // reasonable real-world approximation for a purely cosmetic texture.
       drawBarcodePlaceholder2D(ctx, el, b, 'MaxiCode – Vorschau', b.w / 30);
+      return;
+    }
+    if (el.barcodeType === 'qrcode') {
+      drawQrElement(ctx, el, o);
       return;
     }
     const enc = barcodeEncode(el, o);
@@ -915,6 +1053,9 @@
         // getBounds() call (barcode-encode + module-count) for the common
         // case rather than computing and discarding it every frame.
         else if (el.type === 'barcode') {
+          // QR is absent here on purpose: drawQrElement derives its own
+          // geometry from the encode result (which is cached anyway), so it
+          // does not need the bounds either.
           const needsBounds = el.barcodeType === 'datamatrix' || el.barcodeType === 'aztec' || el.barcodeType === 'maxicode';
           drawBarcodeElement(ctx, el, needsBounds ? getBounds(el, opts) : null, opts);
         }
@@ -952,6 +1093,10 @@
     dataMatrixWH: dataMatrixWH,
     aztecWH: aztecWH,
     maxicodeWH: maxicodeWH,
+    qrEncode: qrEncode,
+    qrWH: qrWH,
+    qrModuleDots: qrModuleDots,
+    drawQrElement: drawQrElement,
     elementLocalSize: elementLocalSize,
     getBounds: getBounds,
     getLocalBounds: getLocalBounds,

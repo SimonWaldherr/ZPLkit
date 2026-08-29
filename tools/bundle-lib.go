@@ -1,4 +1,4 @@
-//go:build ignore
+﻿//go:build ignore
 // +build ignore
 
 // Bundles the ZPLkit library modules into single-file builds under zplkit/dist/
@@ -54,6 +54,7 @@ var (
 	// embedded graphic round-trips as verbatim raw text instead of being
 	// decoded - it is never silently dropped and nothing throws.
 	extraModules = []string{
+		"zplkit/qrcode.js",         // real QR encoder (^BQ) - matrix output, so not part of the 1D barcode core
 		"zplkit/inflate.js",        // DEFLATE/zlib - only needed by gfa-codec + xlsx
 		"zplkit/gfa-codec.js",      // ^GF/~DG graphics
 		"zplkit/image-mono.js",     // RGBA -> 1bpp, only useful with graphics
@@ -82,12 +83,12 @@ func variants() []variant {
 		{
 			out:     "zplkit/dist/zplkit-full.js",
 			modules: full,
-			note:    "Vollständig: Parser, Generator, Barcodes, DPI-Umrechnung, Grafiken (^GF/~DG, Z64), Diff, Glossar, CSV/XLSX, Etikettenbögen, Element-Geometrie/Größenberechnung (ZPLRender - benötigt einen DOM-Canvas, browserseitig), PDF-/GIF-Export, optionale Backend-Schnittstelle (Drucken/Etikettenserver).",
+			note:    "Vollständig: Parser, Generator, Barcodes, QR-Encoder (^BQ), DPI-Umrechnung, Grafiken (^GF/~DG, Z64), Diff, Glossar, CSV/XLSX, Etikettenbögen, Element-Geometrie/Größenberechnung (ZPLRender - benötigt einen DOM-Canvas, browserseitig), PDF-/GIF-Export, optionale Backend-Schnittstelle (Drucken/Etikettenserver).",
 		},
 		{
 			out:     "zplkit/dist/zplkit-lite.js",
 			modules: coreModules,
-			note:    "Schlank: nur Parser, Generator, Modell, DPI-Umrechnung und Barcode-Encoder. Ohne Grafik-Codec, Glossar, Diff, CSV/XLSX, Etikettenbögen - eingebettete Grafiken werden unverändert durchgereicht statt dekodiert.",
+			note:    "Schlank: nur Parser, Generator, Modell, DPI-Umrechnung und 1D-Barcode-Encoder. Ohne QR-Encoder, Grafik-Codec, Glossar, Diff, CSV/XLSX, Etikettenbögen - eingebettete Grafiken werden unverändert durchgereicht statt dekodiert.",
 		},
 	}
 }

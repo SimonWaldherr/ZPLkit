@@ -41,6 +41,13 @@
     'raster.reason.module-too-small': 'mindestens eine Modulbreite ist sehr klein',
     'raster.reason.inverse-barcode': 'ein inverser Barcode benötigt einen passenden Scanner',
     'raster.reason.edge-quiet-zone': 'ein Barcode liegt zu nah am Labelrand',
+    'qr.status': 'Version {version} ({modules}×{modules} Module), Fehlerkorrektur {level}, Maske {mask}, {mode} · {size} bei Modulgröße {module}',
+    'qr.mode.numeric': 'numerisch',
+    'qr.mode.alphanumeric': 'alphanumerisch',
+    'qr.mode.byte': 'Byte (UTF-8)',
+    'qr.mode.mixed': 'gemischt',
+    'qr.module-too-small': 'Warnung: unter 0,19 mm Modulgröße lesen viele Handscanner nicht mehr zuverlässig.',
+    'qr.prefix-used': 'Steuerpräfix im Datenfeld erkannt: „{prefix}“.',
     'unit.dots': 'Dots',
     'unit.px': 'px',
     'Punkte/mm': 'Punkte/mm',
@@ -1142,6 +1149,13 @@
       drawBarcodePlaceholder2D(el, b, 'MaxiCode – Vorschau', b.w / 30);
       return;
     }
+    if (el.barcodeType === 'qrcode') {
+      // The one 2D symbology drawn from a real encoder rather than as a
+      // placeholder - delegated to zpl-render.js so the editor canvas and
+      // every raster export paint the identical module matrix.
+      window.ZPLRender.drawQrElement(ctx, el, renderOpts());
+      return;
+    }
     const enc = barcodeEncode(el);
     ctx.save();
     const angle = ORIENT_RAD[(el.params && el.params.orientation) || 'N'] || 0;
@@ -1560,18 +1574,23 @@
     magnification: 'Vergrößerung (1–10)', errorControl: 'Fehlerkorrektur/Symbolgröße',
     menuSymbol: 'Menü-Symbol (Bordkarten)', appendCount: 'Gruppengröße (1–26)', appendId: 'Gruppen-ID',
     eci: 'ECI (erweiterte Zeichenkodierung)', symbolNumber: 'Symbolnummer', totalSymbols: 'Gruppengröße (Symbole gesamt)',
+    model: 'Modell (1 oder 2)', errorCorrection: 'Fehlerkorrektur', maskValue: 'Maskierung (0–7)',
   };
   const BARCODE_PARAM_ATTRS = {
     quality: 'min="0" max="200" step="10"', columns: 'min="0" max="49"', rows: 'min="0" max="49"',
     format: 'min="1" max="6"', aspect: 'min="1" max="2"',
     magnification: 'min="1" max="10"', appendCount: 'min="1" max="26"',
     symbolNumber: 'min="1" max="8"', totalSymbols: 'min="1" max="8"',
+    model: 'min="1" max="2"', maskValue: 'min="0" max="7"',
   };
   // 'mode' means different things per barcode type (Code128's subset letter
   // vs. MaxiCode's numeric 2-6 mode) - override by type where the generic
   // key-only label would be misleading.
   const BARCODE_PARAM_LABELS_BY_TYPE = {
     maxicode: { mode: 'Modus (2–6)' },
+    // For QR the magnification IS the module size in dots, and the level
+    // here is only a fallback: a "QA," style prefix in the field data wins.
+    qrcode: { magnification: 'Modulgröße in Dots (1–10)', errorCorrection: 'Fehlerkorrektur (H/Q/M/L, Vorgabe)' },
   };
   function barcodeParamField(p, el) {
     const path = 'params.' + p.key;
@@ -1680,7 +1699,13 @@
       if (el.barcodeType === 'ean13' || el.barcodeType === 'upca') {
         html += '<p class="hint" id="checkDigitPreview"></p>';
       }
-      if (isPlaceholderOnlyBarcode(el.barcodeType)) {
+      if (el.barcodeType === 'qrcode') {
+        // ^BY (Modulbreite/Verhältnis) has no effect on a QR at all - its
+        // size comes from ^BQ's own magnification parameter - so offering
+        // those two fields here would only invite pointless edits.
+        html += '<p class="hint" id="qrStatus"></p>';
+        html += '<p class="hint">Dieser QR-Code wird echt codiert und ist scanbar &ndash; auch in PNG/PDF-Exporten. Die Fehlerkorrekturstufe darf zus&auml;tzlich im Datenfeld stehen (z.&nbsp;B. <code>QA,Inhalt</code> f&uuml;r Stufe Q im automatischen Modus); steht dort eine, hat sie Vorrang vor der Vorgabe unten. Modulbreite/Verh&auml;ltnis (^BY) wirken auf einen QR-Code nicht.</p>';
+      } else if (isPlaceholderOnlyBarcode(el.barcodeType)) {
         html += '<p class="hint">2D-Code für Scanner (z. B. Sendungs-/Palettendaten). Die Vorschau ist nur eine Annäherung, kein scanbarer Code.</p>';
       } else {
         html += fieldPair(
@@ -1690,7 +1715,15 @@
         html += '<p class="hint">Modulbreite ist die Breite des schmalsten Strichs, gr&ouml;&szlig;ere Werte machen den Barcode breiter und leichter lesbar.</p>';
       }
       const hasHeightParam = schema.params.some(function (p) { return p.key === 'height'; });
-      const hasOrientationParam = schema.params.some(function (p) { return p.key === 'orientation'; });
+      // ^BQ HAS an orientation parameter positionally (it must stay in the
+      // schema so the parser's positional zip and the round-trip stay
+      // exact), but Zebra documents it as a fixed value that ^FW does not
+      // affect - so offering the select would be an editable control with
+      // no effect on the printed label. Same reasoning as hiding ^BY above,
+      // and it matches elementSupportsOrientation suppressing the on-canvas
+      // rotate handle for QR.
+      const hasOrientationParam = schema.params.some(function (p) { return p.key === 'orientation'; }) &&
+        elementSupportsOrientation(el);
       const heightField = hasHeightParam ? field('Höhe (Dots)', '<input type="number" min="1" data-bind="params.height">') : '';
       const orientField = hasOrientationParam ? field('Ausrichtung', '<select data-bind="params.orientation">' + optionsHtml(M.ORIENTATIONS, el.params.orientation, true) + '</select>') : '';
       if (hasHeightParam && hasOrientationParam) html += fieldPair(heightField, orientField);
@@ -2195,6 +2228,32 @@
       }
     }
     if (el.type === 'barcode') {
+      // QR has a real encoder with its own result shape (a module matrix,
+      // not bar runs), so it reports version/level/mask instead of going
+      // through the 1D preview-error path - which would only ever say
+      // "no preview for this type".
+      const qrStatusEl = $('qrStatus');
+      if (qrStatusEl) {
+        const qr = window.ZPLRender.qrWH(el, renderOpts());
+        if (!qr.enc.ok) {
+          qrStatusEl.textContent = 'QR-Fehler: ' + qr.enc.error;
+          qrStatusEl.style.color = '#B3261E';
+        } else {
+          const mmPerModule = dotsToMm(qr.moduleDots);
+          const parsed = window.ZPLQr.parseFieldData(applySampleData(el.data || ''));
+          qrStatusEl.style.color = mmPerModule < 0.19 ? '#B3261E' : '';
+          qrStatusEl.textContent = t('qr.status', {
+            version: qr.enc.version,
+            modules: qr.enc.size,
+            level: qr.enc.ecLevel,
+            mask: qr.enc.mask,
+            mode: t('qr.mode.' + qr.enc.mode),
+            size: mmLabel(dotsToMm(qr.w)),
+            module: mmLabel(mmPerModule, 2),
+          }) + (mmPerModule < 0.19 ? ' ' + t('qr.module-too-small') : '') +
+            (parsed.prefix ? ' ' + t('qr.prefix-used', { prefix: parsed.prefix }) : '');
+        }
+      }
       const enc = barcodeEncode(el);
       const errEl = $('barcodeError');
       if (errEl) {
@@ -2202,11 +2261,12 @@
         // here by design (see isPlaceholderOnlyBarcode) - showing "preview
         // error" for those would read as a bug rather than the intentional,
         // clearly-labeled placeholder.
-        let msg = (enc.ok || isPlaceholderOnlyBarcode(el.barcodeType)) ? (enc.ok ? (enc.error || '') : '') : ('Vorschau-Fehler: ' + enc.error);
+        const hasOwnStatus = isPlaceholderOnlyBarcode(el.barcodeType) || el.barcodeType === 'qrcode';
+        let msg = (enc.ok || hasOwnStatus) ? (enc.ok ? (enc.error || '') : '') : ('Vorschau-Fehler: ' + enc.error);
         // Scannability check: below ~0.19mm (5mil) module width, handheld
         // scanners commonly start missing reads - a real, cheap-to-catch
         // defect class distinct from "does the preview render at all".
-        if (!isPlaceholderOnlyBarcode(el.barcodeType) && el.moduleWidth) {
+        if (!hasOwnStatus && el.moduleWidth) {
           const dpi = state.label.settings.dpi || 203;
           const mmPerModule = (M.normalizeBarcodeModuleWidth(el.moduleWidth) / dpi) * 25.4;
           if (mmPerModule < 0.19) {
@@ -3843,12 +3903,12 @@
       '^XA\n' +
       '^MMT\n' +
       '^PW700\n' +
-      '^LL500\n' +
+      '^LL560\n' +
       '^LH0,0\n' +
       '^LS0\n' +
       '^PON\n' +
       '^CI0\n' +
-      '^FO30,30^GB640,440,4,B,0^FS\n' +
+      '^FO30,30^GB640,500,4,B,0^FS\n' +
       '^FO60,50^A0N,32,0^FDBarcode-Beispiele^FS\n' +
       '^BY2,2,60\n' +
       '^FO60,100^BCN,60,Y,N,N,N\n' +
@@ -3859,8 +3919,10 @@
       '^BY2,2,60\n' +
       '^FO60,280^BEN,60,Y,N\n' +
       '^FD400123456785^FS\n' +
-      '^FO60,370^A0N,20,0^FDData Matrix (Platzhalter, keine echte Codierung):^FS\n' +
-      '^FO400,370^BXN,6,200,0,0,1,_,1^FDDEMO^FS\n' +
+      '^FO60,370^A0N,18,0^FDQR (echt codiert, scanbar)^FS\n' +
+      '^FO60,398^BQN,2,4^FDQA,ZPLKIT-4711^FS\n' +
+      '^FO300,370^A0N,18,0^FDData Matrix (nur Platzhalter)^FS\n' +
+      '^FO300,398^BXN,6,200,0,0,1,_,1^FDDEMO^FS\n' +
       '^PQ1,0,1,Y\n' +
       '^XZ\n',
   };

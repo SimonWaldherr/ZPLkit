@@ -35,8 +35,8 @@
     H: { name: 'H', ordinal: 3, formatBits: 2 }, // ~30%
   };
 
-  // ISO/IEC 18004 Table 9, indexed [eccOrdinal][version]; index 0 is unused
-  // so `version` can be used directly as the index.
+  // ISO/IEC 18004 Table 9: error-correction codewords per block, indexed
+  // [eccOrdinal][version]; index 0 is unused so `version` indexes directly.
   const ECC_CODEWORDS_PER_BLOCK = [
     // L
     [-1, 7, 10, 15, 20, 26, 18, 20, 24, 30, 18, 20, 24, 26, 30, 22, 24, 28, 30, 28, 28, 28, 28, 30, 30, 26, 28, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30],
@@ -48,15 +48,30 @@
     [-1, 17, 28, 22, 16, 22, 28, 26, 26, 24, 28, 24, 28, 22, 24, 24, 30, 28, 28, 26, 28, 30, 24, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30],
   ];
 
-  const NUM_ERROR_CORRECTION_BLOCKS = [
+  // ISO/IEC 18004 Table 7: total DATA codewords per version and level.
+  //
+  // The block COUNT is deliberately not a second hand-transcribed table -
+  // it is derived from this one (see numEccBlocks). Two independent tables
+  // that must agree is exactly the shape a silent off-by-one hides in: an
+  // earlier draft of this file had the H column shifted by one from version
+  // 38 upwards, which produced a structurally valid but unscannable symbol
+  // only at the very top of the version range. Deriving instead means a bad
+  // entry cannot stay consistent - the division below stops coming out
+  // whole, and assertBlockStructure() catches it for all 160 combinations.
+  //
+  // These numbers are also cross-checkable against the far more widely
+  // published byte-mode capacity table: capacity = data - 2 for versions
+  // 1-9 and data - 3 for 10-40 (the mode indicator plus the character-count
+  // field). test/qrcode.test.js checks exactly that, for every combination.
+  const DATA_CODEWORDS = [
     // L
-    [-1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 4, 4, 4, 4, 4, 6, 6, 6, 6, 7, 8, 8, 9, 9, 10, 12, 12, 12, 13, 14, 15, 16, 17, 18, 19, 19, 20, 21, 22, 24, 25],
+    [-1, 19, 34, 55, 80, 108, 136, 156, 194, 232, 274, 324, 370, 428, 461, 523, 589, 647, 721, 795, 861, 932, 1006, 1094, 1174, 1276, 1370, 1468, 1531, 1631, 1735, 1843, 1955, 2071, 2191, 2306, 2434, 2566, 2702, 2812, 2956],
     // M
-    [-1, 1, 1, 1, 2, 2, 4, 4, 4, 5, 5, 5, 8, 9, 9, 10, 10, 11, 13, 14, 16, 17, 17, 18, 20, 21, 23, 25, 26, 28, 29, 31, 33, 35, 37, 38, 40, 43, 45, 47, 49],
+    [-1, 16, 28, 44, 64, 86, 108, 124, 154, 182, 216, 254, 290, 334, 365, 415, 453, 507, 563, 627, 669, 714, 782, 860, 914, 1000, 1062, 1128, 1193, 1267, 1373, 1455, 1541, 1631, 1725, 1812, 1914, 1992, 2102, 2216, 2334],
     // Q
-    [-1, 1, 1, 2, 2, 4, 4, 6, 6, 8, 8, 8, 10, 12, 16, 12, 17, 16, 18, 21, 20, 23, 23, 25, 27, 29, 34, 34, 35, 38, 40, 43, 45, 48, 51, 53, 56, 59, 62, 65, 68],
+    [-1, 13, 22, 34, 48, 62, 76, 88, 110, 132, 154, 180, 206, 244, 261, 295, 325, 367, 397, 445, 485, 512, 568, 614, 664, 718, 754, 808, 871, 911, 985, 1033, 1115, 1171, 1231, 1286, 1354, 1426, 1502, 1582, 1666],
     // H
-    [-1, 1, 1, 2, 4, 4, 4, 5, 5, 8, 8, 11, 11, 16, 16, 18, 16, 19, 21, 25, 25, 25, 34, 30, 32, 35, 37, 40, 42, 45, 48, 51, 57, 60, 63, 66, 70, 74, 77, 81, 84],
+    [-1, 9, 16, 26, 36, 46, 60, 66, 86, 100, 122, 140, 158, 180, 197, 223, 253, 283, 313, 341, 385, 406, 442, 464, 514, 538, 596, 628, 661, 701, 745, 793, 845, 901, 961, 986, 1054, 1096, 1142, 1222, 1276],
   ];
 
   // Penalty weights from the spec's evaluation rules 1-4.
@@ -137,9 +152,48 @@
     return result;
   }
 
+  function numTotalCodewords(version) {
+    return Math.floor(numRawDataModules(version) / 8);
+  }
+
   function numDataCodewords(version, eccOrdinal) {
-    return Math.floor(numRawDataModules(version) / 8)
-      - ECC_CODEWORDS_PER_BLOCK[eccOrdinal][version] * NUM_ERROR_CORRECTION_BLOCKS[eccOrdinal][version];
+    return DATA_CODEWORDS[eccOrdinal][version];
+  }
+
+  // Derived, never transcribed: total minus data is the whole EC budget, and
+  // every block carries exactly the same number of EC codewords, so the
+  // block count is forced. A non-integer result would mean one of the two
+  // tables is wrong - see assertBlockStructure().
+  function numEccBlocks(version, eccOrdinal) {
+    const totalEcc = numTotalCodewords(version) - DATA_CODEWORDS[eccOrdinal][version];
+    return totalEcc / ECC_CODEWORDS_PER_BLOCK[eccOrdinal][version];
+  }
+
+  /* Verifies the two tables against each other for every version/level.
+     Returns an array of human-readable problems - empty means consistent.
+     Exposed rather than run at load time: it is a test's job, and a library
+     should not spend milliseconds re-proving its own constants on every
+     page load. */
+  function assertBlockStructure() {
+    const problems = [];
+    for (let ecc = 0; ecc < 4; ecc++) {
+      for (let version = MIN_VERSION; version <= MAX_VERSION; version++) {
+        const blocks = numEccBlocks(version, ecc);
+        const where = 'v' + version + ' ' + ['L', 'M', 'Q', 'H'][ecc];
+        if (!isFinite(blocks) || blocks <= 0 || blocks !== Math.floor(blocks)) {
+          problems.push(where + ': block count is not a whole number (' + blocks + ')');
+          continue;
+        }
+        // Every block must end up with at least one data codeword, and the
+        // short/long split may differ by at most one codeword.
+        const total = numTotalCodewords(version);
+        const shortBlockLen = Math.floor(total / blocks);
+        if (shortBlockLen - ECC_CODEWORDS_PER_BLOCK[ecc][version] < 1) {
+          problems.push(where + ': block would hold no data codewords');
+        }
+      }
+    }
+    return problems;
   }
 
   // Bit width of a segment's character-count field, which grows in three
@@ -556,9 +610,9 @@
   // Reed-Solomon codewords, then interleaves both - so a burst of damage is
   // spread across blocks instead of destroying one of them entirely.
   function interleaveBlocks(data, version, eccOrdinal) {
-    const numBlocks = NUM_ERROR_CORRECTION_BLOCKS[eccOrdinal][version];
+    const numBlocks = numEccBlocks(version, eccOrdinal);
     const blockEccLen = ECC_CODEWORDS_PER_BLOCK[eccOrdinal][version];
-    const rawCodewords = Math.floor(numRawDataModules(version) / 8);
+    const rawCodewords = numTotalCodewords(version);
     const numShortBlocks = numBlocks - rawCodewords % numBlocks;
     const shortBlockLen = Math.floor(rawCodewords / numBlocks);
 
@@ -795,6 +849,9 @@
     encodeFieldData: encodeFieldData,
     // Exposed for tests and for capacity hints in the UI.
     numDataCodewords: numDataCodewords,
+    numTotalCodewords: numTotalCodewords,
+    numEccBlocks: numEccBlocks,
+    assertBlockStructure: assertBlockStructure,
     alignmentPatternPositions: alignmentPatternPositions,
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

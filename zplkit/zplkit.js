@@ -16,7 +16,7 @@
   // Bumped by hand on a breaking or notable change to the public surface
   // below. Not tied to the editor's own git history - a consumer pinning a
   // copy of a dist/ bundle cares about this API, not about editor UI changes.
-  const VERSION = '1.2.0';
+  const VERSION = '1.3.0';
 
   // name-in-namespace -> global the module attaches itself to.
   const MODULES = {
@@ -25,6 +25,7 @@
     Parser: 'ZPLParser',
     Generator: 'ZPLGenerator',
     Barcode: 'ZPLBarcode',
+    Qr: 'ZPLQr',
     Graphic: 'ZPLGraphic',
     Inflate: 'ZPLInflate',
     Diff: 'ZPLDiff',
