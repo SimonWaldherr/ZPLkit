@@ -51,7 +51,12 @@ const LABEL_B = '^XA^PW400^LL400^FO20,20^A0N,30,0^FDZWEI^FS^XZ';
 const LABEL_C = '^XA^PW400^LL400^FO20,20^A0N,30,0^FDDREI^FS^XZ';
 
 function texts(doc) {
-  return doc.labels.map(function (l) {
+  // The parser runs in a vm context. Array.prototype.map from that context
+  // creates a foreign-realm Array, which strict assert versions correctly
+  // treat as a different prototype even when every value matches. Build the
+  // assertion value in this realm so the test checks document content rather
+  // than VM implementation details.
+  return Array.from(doc.labels, function (l) {
     return l.elements.map(function (e) { return e.text || e.data || e.type; }).join('+');
   });
 }
@@ -115,7 +120,7 @@ test('driver-config and ^ID cleanup frames are not labels', function () {
   assert.ok(doc.preamble && doc.preamble.indexOf('~TA000') !== -1);
   // Each non-label frame is anchored to the label it followed, so it does not
   // migrate to the end of the file on save.
-  assert.deepEqual(doc.passthrough.map(function (p) { return p.afterLabelIndex; }), [0, 1]);
+  assert.deepEqual(Array.from(doc.passthrough, function (p) { return p.afterLabelIndex; }), [0, 1]);
 
   const out = assertStable(c, source);
   assert.ok(out.indexOf('~TA000') !== -1, 'preamble lost');

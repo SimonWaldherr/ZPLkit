@@ -47,6 +47,51 @@ func validTemplateName(name string) bool {
 	return name != "" && filepath.Base(name) == name && templateNameRE.MatchString(name)
 }
 
+// writeTemplateAtomically keeps readers from observing a truncated template
+// while a save is in progress. The temporary file lives in the destination
+// directory, so the final rename stays on one filesystem and is atomic on the
+// platforms supported by Go.
+func writeTemplateAtomically(dir, name string, data []byte) error {
+	destination := filepath.Join(dir, name)
+	mode := os.FileMode(0o644)
+	if info, err := os.Stat(destination); err == nil {
+		mode = info.Mode().Perm()
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	tmp, err := os.CreateTemp(dir, ".zplkit-template-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	renamed := false
+	defer func() {
+		_ = tmp.Close()
+		if !renamed {
+			_ = os.Remove(tmpName)
+		}
+	}()
+
+	if err := tmp.Chmod(mode); err != nil {
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpName, destination); err != nil {
+		return err
+	}
+	renamed = true
+	return nil
+}
+
 func templatesListHandler(dir string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		entries, err := os.ReadDir(dir)
@@ -89,9 +134,9 @@ func templatesItemHandler(dir string) http.HandlerFunc {
 			http.Error(w, "invalid template name", http.StatusBadRequest)
 			return
 		}
-		path := filepath.Join(dir, name)
 		switch r.Method {
 		case http.MethodGet:
+			path := filepath.Join(dir, name)
 			data, err := os.ReadFile(path)
 			if err != nil {
 				if os.IsNotExist(err) {
@@ -115,7 +160,7 @@ func templatesItemHandler(dir string) http.HandlerFunc {
 				http.Error(w, "could not create templates directory: "+err.Error(), http.StatusInternalServerError)
 				return
 			}
-			if err := os.WriteFile(path, data, 0o644); err != nil {
+			if err := writeTemplateAtomically(dir, name, data); err != nil {
 				http.Error(w, "could not write file: "+err.Error(), http.StatusInternalServerError)
 				return
 			}

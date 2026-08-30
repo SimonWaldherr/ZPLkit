@@ -46,6 +46,14 @@ function test(name, fn) {
   }
 }
 
+// QR code objects are produced inside a vm context. Convert compound values
+// to host-realm JSON data before strict structural assertions; otherwise
+// recent Node releases compare the foreign Array/Object prototypes too and
+// report matching data as "not reference-equal".
+function toPlain(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
 const LEVELS = ['L', 'M', 'Q', 'H'];
 
 // ISO/IEC 18004 byte-mode character capacity, [version] -> [L, M, Q, H].
@@ -91,7 +99,7 @@ function packModules(result) {
 
 test('the two capacity tables agree for every version and level', function () {
   const Qr = loadQr();
-  assert.deepEqual(Qr.assertBlockStructure(), []);
+  assert.deepEqual(toPlain(Qr.assertBlockStructure()), []);
 });
 
 test('data codewords match the published byte-mode capacity table', function () {
@@ -192,7 +200,7 @@ test('places alignment patterns where the spec says', function () {
     21: [6, 28, 50, 72, 94], 32: [6, 34, 60, 86, 112, 138], 40: [6, 30, 58, 86, 114, 142, 170],
   };
   Object.keys(expected).forEach(function (v) {
-    assert.deepEqual(Qr.alignmentPatternPositions(Number(v)), expected[v], 'Version ' + v);
+    assert.deepEqual(toPlain(Qr.alignmentPatternPositions(Number(v))), expected[v], 'Version ' + v);
   });
 });
 
@@ -244,12 +252,12 @@ test('splits ZPL ^BQ field data into its control prefix and payload', function (
   const manual = Qr.parseFieldData('HM,N0123456789');
   assert.equal(manual.ecLevel, 'H');
   assert.equal(manual.inputMode, 'M');
-  assert.deepEqual(manual.segments, [{ text: '0123456789', mode: 'numeric' }]);
+  assert.deepEqual(toPlain(manual.segments), [{ text: '0123456789', mode: 'numeric' }]);
 
   // Manual mode chains "<character mode><data>" chunks; B carries a 4-digit
   // byte count rather than running to the next comma.
   const mixed = Qr.parseFieldData('MM,AHELLO,B0004test');
-  assert.deepEqual(mixed.segments, [
+  assert.deepEqual(toPlain(mixed.segments), [
     { text: 'HELLO', mode: 'alphanumeric' },
     { text: 'test', mode: 'byte' },
   ]);

@@ -1,4 +1,4 @@
-﻿//go:build ignore
+//go:build ignore
 // +build ignore
 
 // Bundles the ZPLkit library modules into single-file builds under zplkit/dist/
@@ -24,6 +24,8 @@
 package main
 
 import (
+	"bytes"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -93,7 +95,7 @@ func variants() []variant {
 	}
 }
 
-func build(v variant) error {
+func build(v variant, checkOnly bool) error {
 	mods := append(append([]string{}, v.modules...), facade)
 
 	var b strings.Builder
@@ -127,19 +129,35 @@ func build(v variant) error {
 		}
 	}
 
+	data := []byte(b.String())
+	if checkOnly {
+		current, err := os.ReadFile(filepath.FromSlash(v.out))
+		if err != nil {
+			return fmt.Errorf("read generated bundle %s: %w", v.out, err)
+		}
+		if !bytes.Equal(current, data) {
+			return fmt.Errorf("%s is stale; run go run tools/bundle-lib.go", v.out)
+		}
+		fmt.Printf("%-24s aktuell (%d Module, %6.1f KB)\n", v.out, len(mods), float64(len(data))/1024)
+		return nil
+	}
+
 	if err := os.MkdirAll(filepath.Dir(filepath.FromSlash(v.out)), 0o755); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.FromSlash(v.out), []byte(b.String()), 0o644); err != nil {
+	if err := os.WriteFile(filepath.FromSlash(v.out), data, 0o644); err != nil {
 		return err
 	}
-	fmt.Printf("%-24s %2d Module, %6.1f KB\n", v.out, len(mods), float64(len(b.String()))/1024)
+	fmt.Printf("%-24s %2d Module, %6.1f KB\n", v.out, len(mods), float64(len(data))/1024)
 	return nil
 }
 
 func main() {
+	checkOnly := flag.Bool("check", false, "verify that committed bundles match their source modules without rewriting them")
+	flag.Parse()
+
 	for _, v := range variants() {
-		if err := build(v); err != nil {
+		if err := build(v, *checkOnly); err != nil {
 			fmt.Fprintf(os.Stderr, "bundle-lib: %v\n", err)
 			os.Exit(1)
 		}

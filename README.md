@@ -136,6 +136,15 @@ go run . -addr 127.0.0.1:8081
 
 Die statischen Dateien im Repository-Root können auch direkt über einen statischen Webserver ausgeliefert werden.
 
+Für ein einzelnes, portables Server-Binary:
+
+```sh
+go build -trimpath -o zpl-studio-server .
+./zpl-studio-server
+```
+
+Beim Beenden mit `Ctrl+C` oder `SIGTERM` wartet der Server kurz auf laufende Speicher- und Druckanfragen, bevor er sauber herunterfährt.
+
 ## Optionale Server-Funktionen
 
 Der Go-Server stellt eine zentrale Vorlagenbibliothek bereit. Standardmäßig verwendet sie das Verzeichnis `templates`; mit dem folgenden Flag wählst du ein anderes Verzeichnis für `.zpl`-Dateien:
@@ -177,13 +186,13 @@ Ein ausführbares Einbindungsbeispiel gibt es unter `zplkit/examples/library-dem
 
 ## Entwicklung
 
-Go-Tests lassen sich mit folgendem Befehl ausführen:
+Der vollständige lokale Prüflauf benötigt Go 1.21+ und Node.js 22+ und führt Go-Tests, `go vet`, JavaScript-Syntaxprüfungen, alle Node-Tests sowie den Bundle-Abgleich aus:
 
 ```sh
-go test ./...
+./scripts/verify.sh
 ```
 
-Die DOM-freien JavaScript-Tests unter `test/` laufen direkt mit Node:
+Die Prüfung läuft für jeden Push und Pull Request zusätzlich über GitHub Actions. Einzelne DOM-freie JavaScript-Tests unter `test/` lassen sich weiterhin direkt mit Node starten:
 
 ```sh
 node test/qrcode.test.js
@@ -200,6 +209,12 @@ Wird eine Bibliotheksdatei in `zplkit/` geändert, aktualisiere die Bundles mit:
 go run tools/bundle-lib.go
 ```
 
+Ob die eingecheckten Bundles aktuell sind, lässt sich ohne Dateiänderungen prüfen:
+
+```sh
+go run tools/bundle-lib.go -check
+```
+
 ## Projektstruktur
 
 - `studio/` – Editor-Oberfläche
@@ -207,3 +222,5 @@ go run tools/bundle-lib.go
 - `zplkit/dist/` – veröffentlichte Bundles
 - `main.go`, `printing.go`, `templates.go` – optionaler Go-Server
 - `config/printers.csv.example` – Beispiel für die Drucker-Registry
+- `scripts/verify.sh` – vollständiger lokaler Prüflauf
+- `.github/workflows/ci.yml` – dieselbe Prüfung in GitHub Actions

@@ -11,9 +11,12 @@ labels/
 *.200zpl
 *.prn
 
-# Compiled output of the root Go server - build it yourself with `go build`.
+# Compiled output of the root Go server. The explicit project name is used by
+# the README; /ZPLkit also covers Go's default directory-derived binary name.
 /zpl-studio-server
 /zpl-studio-server.exe
+/ZPLkit
+/ZPLkit.exe
 /server.log
 
 # Runtime-only printer configuration and templates may contain internal

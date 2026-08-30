@@ -5,10 +5,16 @@
 package main
 
 import (
+	"context"
 	"embed"
+	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 )
 
@@ -26,6 +32,40 @@ func withLogging(h http.Handler) http.Handler {
 		h.ServeHTTP(w, r)
 		log.Printf("%s %s %s", r.Method, r.URL.Path, time.Since(start))
 	})
+}
+
+const serverShutdownTimeout = 10 * time.Second
+
+// serveUntilShutdown keeps the process responsive to SIGINT/SIGTERM and lets
+// in-flight template or print requests finish before the embedded server
+// exits. This matters when the binary runs under systemd, Docker or an
+// orchestrator, all of which stop services with SIGTERM rather than Ctrl+C.
+func serveUntilShutdown(server *http.Server, shutdown context.Context) error {
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- server.ListenAndServe()
+	}()
+
+	select {
+	case err := <-errCh:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	case <-shutdown.Done():
+		log.Printf("ZPL-Studio wird heruntergefahren …")
+		ctx, cancel := context.WithTimeout(context.Background(), serverShutdownTimeout)
+		defer cancel()
+		if err := server.Shutdown(ctx); err != nil {
+			_ = server.Close()
+			return fmt.Errorf("graceful shutdown: %w", err)
+		}
+		err := <-errCh
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	}
 }
 
 func main() {
@@ -71,9 +111,14 @@ func main() {
 		Handler:           withLogging(mux),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    1 << 20,
 	}
+	shutdown, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
 	log.Printf("ZPL-Studio läuft auf http://%s (Strg+C zum Beenden)", *addr)
-	log.Fatal(server.ListenAndServe())
+	if err := serveUntilShutdown(server, shutdown); err != nil {
+		log.Fatal(err)
+	}
 }
