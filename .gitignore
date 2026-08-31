@@ -17,6 +17,9 @@ labels/
 /zpl-studio-server.exe
 /ZPLkit
 /ZPLkit.exe
+# On case-insensitive filesystems the binary rule above also matches the
+# tracked source directory. Explicitly keep new library modules visible.
+!/zplkit/
 /server.log
 
 # Runtime-only printer configuration and templates may contain internal

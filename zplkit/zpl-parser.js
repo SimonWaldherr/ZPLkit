@@ -7,6 +7,7 @@
   'use strict';
 
   const M = global.ZPLModel;
+  const EditorMetadata = global.ZPLEditorMetadata;
 
   // A ^XA..^XZ frame is printer/driver configuration (not a real label) if it
   // contains none of the visual-element commands and does contain a
@@ -190,6 +191,8 @@
   // that label 1 does not.
   function parseBodyInto(label, body) {
     const tokens = tokenize(body);
+    const editorMetadataChunks = [];
+    const editorMetadataRawEntries = [];
 
     let pendingOrigin = null;       // { code:'FO'|'FT', x, y, raw }
     let pendingBarcodeDraft = null; // { type, orientation, rawParams } or { unsupported:true, raw }
@@ -543,6 +546,16 @@
       // make a fresh parse of this editor's OWN generated output gain a
       // rawTail entry it didn't start with, growing on every re-save).
       if (tok.prefix === '^' && a.slice(0, 2) === 'PQ') { label.settings.pq = a.slice(2).replace(/[\r\n]+$/, ''); continue; }
+      // ZPLkit's versioned editor sidecar. Keep the original comments in
+      // rawTail until every chunk and its checksum has validated; corrupt or
+      // future-version metadata must never make printable label data fail.
+      if (tok.prefix === '^' && EditorMetadata && a.indexOf('FXZPLKIT_META:') === 0) {
+        const entry = { raw: tok.raw.replace(/[\r\n]+$/, '') + '^FS', atIndex: label.elements.length, _zplkitMeta: true };
+        label.rawTail.push(entry);
+        editorMetadataRawEntries.push(entry);
+        editorMetadataChunks.push(EditorMetadata.parseChunk(tok.raw));
+        continue;
+      }
       // This editor's own version-note convention: a "^FX" comment (ignored
       // by the printer either way) tagged "NOTIZ:" so it round-trips as a
       // structured field instead of opaque passthrough - any OTHER ^FX
@@ -566,6 +579,14 @@
       }
     }
 
+    if (editorMetadataChunks.length && EditorMetadata) {
+      const decoded = EditorMetadata.decode(editorMetadataChunks);
+      if (decoded && EditorMetadata.apply(label, decoded)) {
+        label.rawTail = label.rawTail.filter(function (entry) { return !entry._zplkitMeta; });
+      } else {
+        editorMetadataRawEntries.forEach(function (entry) { delete entry._zplkitMeta; });
+      }
+    }
     label.byState = currentBY;
     return label;
   }

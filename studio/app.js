@@ -178,6 +178,146 @@
   })();
 
   // ---------------------------------------------------------------------
+  // Workspace layout and appearance. These preferences are deliberately
+  // separate from the label document: resizing a panel or changing the
+  // theme must never dirty or alter printable ZPL data.
+  const WORKSPACE_PREFS_KEY = 'zplStudioWorkspace';
+  const THEME_PREF_KEY = 'zplStudioTheme';
+  const WORKSPACE_DEFAULTS = { leftWidth: 68, rightWidth: 320, consoleHeight: 280, consoleOpen: false };
+  const workspacePrefs = Object.assign({}, WORKSPACE_DEFAULTS);
+
+  try {
+    const storedWorkspace = JSON.parse(localStorage.getItem(WORKSPACE_PREFS_KEY) || 'null');
+    if (storedWorkspace && typeof storedWorkspace === 'object') Object.assign(workspacePrefs, storedWorkspace);
+  } catch (e) { /* optional preference only */ }
+
+  function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, Number(value) || min));
+  }
+  function maxRightSidebarWidth() {
+    return Math.max(260, Math.min(640, window.innerWidth - 360));
+  }
+  function maxConsoleHeight() {
+    // Leave enough vertical room for the toolbar and a useful canvas even on
+    // short laptop windows; the CSS cap remains a second safety net.
+    return Math.max(150, Math.min(600, Math.round(window.innerHeight * 0.55), window.innerHeight - 220));
+  }
+  function persistWorkspace() {
+    try { localStorage.setItem(WORKSPACE_PREFS_KEY, JSON.stringify(workspacePrefs)); } catch (e) { /* optional preference only */ }
+  }
+  function applyWorkspaceDimensions() {
+    workspacePrefs.leftWidth = clamp(workspacePrefs.leftWidth, 56, 240);
+    workspacePrefs.rightWidth = clamp(workspacePrefs.rightWidth, 260, maxRightSidebarWidth());
+    workspacePrefs.consoleHeight = clamp(workspacePrefs.consoleHeight, 150, maxConsoleHeight());
+    const rootStyle = document.documentElement.style;
+    rootStyle.setProperty('--left-sidebar-width', workspacePrefs.leftWidth + 'px');
+    rootStyle.setProperty('--right-sidebar-width', workspacePrefs.rightWidth + 'px');
+    rootStyle.setProperty('--console-height', workspacePrefs.consoleHeight + 'px');
+    $('leftSidebarSplitter').setAttribute('aria-valuenow', String(Math.round(workspacePrefs.leftWidth)));
+    $('rightSidebarSplitter').setAttribute('aria-valuenow', String(Math.round(workspacePrefs.rightWidth)));
+    $('rightSidebarSplitter').setAttribute('aria-valuemax', String(maxRightSidebarWidth()));
+    $('consoleSplitter').setAttribute('aria-valuenow', String(Math.round(workspacePrefs.consoleHeight)));
+    $('consoleSplitter').setAttribute('aria-valuemax', String(maxConsoleHeight()));
+  }
+  function setConsoleOpen(open, persist) {
+    workspacePrefs.consoleOpen = !!open;
+    $('bottomConsole').classList.toggle('is-collapsed', !workspacePrefs.consoleOpen);
+    $('btnConsoleToggle').setAttribute('aria-expanded', String(workspacePrefs.consoleOpen));
+    $('consoleBody').setAttribute('aria-hidden', String(!workspacePrefs.consoleOpen));
+    if (persist !== false) persistWorkspace();
+    if (workspacePrefs.consoleOpen) requestAnimationFrame(updateZplSource);
+  }
+  function setTheme(theme, persist) {
+    const allowed = ['system', 'light', 'dark', 'contrast'];
+    const selected = allowed.indexOf(theme) === -1 ? 'system' : theme;
+    document.documentElement.dataset.theme = selected;
+    $('themeSelect').value = selected;
+    if (persist !== false) {
+      try { localStorage.setItem(THEME_PREF_KEY, selected); } catch (e) { /* optional preference only */ }
+    }
+  }
+
+  let initialTheme = 'system';
+  try { initialTheme = localStorage.getItem(THEME_PREF_KEY) || 'system'; } catch (e) { /* optional preference only */ }
+  setTheme(initialTheme, false);
+  applyWorkspaceDimensions();
+  setConsoleOpen(workspacePrefs.consoleOpen, false);
+
+  $('themeSelect').addEventListener('change', function () {
+    setTheme(this.value, true);
+    drawLabel();
+  });
+  $('btnConsoleToggle').addEventListener('click', function () { setConsoleOpen(!workspacePrefs.consoleOpen); });
+  $('btnConsoleClose').addEventListener('click', function () { setConsoleOpen(false); $('btnConsoleToggle').focus(); });
+
+  function finishWorkspaceResize(splitter) {
+    splitter.classList.remove('is-active');
+    document.body.classList.remove('layout-resizing', 'layout-resizing-vertical');
+    persistWorkspace();
+    fitZoom();
+    drawLabel();
+  }
+  function makeResizable(splitter, options) {
+    splitter.setAttribute('aria-valuemin', String(options.min));
+    splitter.setAttribute('aria-valuemax', String(options.max()));
+    splitter.addEventListener('pointerdown', function (event) {
+      if (event.button !== 0) return;
+      const startPointer = options.axis === 'x' ? event.clientX : event.clientY;
+      const startValue = workspacePrefs[options.key];
+      splitter.setPointerCapture(event.pointerId);
+      splitter.classList.add('is-active');
+      document.body.classList.add('layout-resizing');
+      if (options.axis === 'y') document.body.classList.add('layout-resizing-vertical');
+      const move = function (moveEvent) {
+        const pointer = options.axis === 'x' ? moveEvent.clientX : moveEvent.clientY;
+        workspacePrefs[options.key] = clamp(startValue + (pointer - startPointer) * options.direction, options.min, options.max());
+        applyWorkspaceDimensions();
+      };
+      const end = function () {
+        splitter.removeEventListener('pointermove', move);
+        splitter.removeEventListener('pointerup', end);
+        splitter.removeEventListener('pointercancel', end);
+        finishWorkspaceResize(splitter);
+      };
+      splitter.addEventListener('pointermove', move);
+      splitter.addEventListener('pointerup', end);
+      splitter.addEventListener('pointercancel', end);
+      event.preventDefault();
+    });
+    splitter.addEventListener('keydown', function (event) {
+      const step = event.shiftKey ? 32 : 8;
+      let delta = 0;
+      if (event.key === 'Home') workspacePrefs[options.key] = options.reset;
+      else if (options.axis === 'x' && event.key === 'ArrowLeft') delta = -step * options.direction;
+      else if (options.axis === 'x' && event.key === 'ArrowRight') delta = step * options.direction;
+      else if (options.axis === 'y' && event.key === 'ArrowUp') delta = -step * options.direction;
+      else if (options.axis === 'y' && event.key === 'ArrowDown') delta = step * options.direction;
+      else return;
+      workspacePrefs[options.key] = clamp(workspacePrefs[options.key] + delta, options.min, options.max());
+      applyWorkspaceDimensions();
+      persistWorkspace();
+      event.preventDefault();
+    });
+    splitter.addEventListener('dblclick', function () {
+      workspacePrefs[options.key] = options.reset;
+      applyWorkspaceDimensions();
+      persistWorkspace();
+      fitZoom();
+      drawLabel();
+    });
+  }
+
+  makeResizable($('leftSidebarSplitter'), {
+    axis: 'x', key: 'leftWidth', direction: 1, min: 56, max: function () { return 240; }, reset: WORKSPACE_DEFAULTS.leftWidth,
+  });
+  makeResizable($('rightSidebarSplitter'), {
+    axis: 'x', key: 'rightWidth', direction: -1, min: 260, max: maxRightSidebarWidth, reset: WORKSPACE_DEFAULTS.rightWidth,
+  });
+  makeResizable($('consoleSplitter'), {
+    axis: 'y', key: 'consoleHeight', direction: -1, min: 150, max: maxConsoleHeight, reset: WORKSPACE_DEFAULTS.consoleHeight,
+  });
+
+  // ---------------------------------------------------------------------
   // History (undo/redo) — simple full-snapshot approach, fine at label scale.
   // ---------------------------------------------------------------------
   // Shared by history snapshots below AND by cloneLabel() (mail-merge section
@@ -252,6 +392,8 @@
     state.historyIndex = state.history.length - 1;
     updateUndoRedoButtons();
     renderHistoryPanel();
+    if ($('btnPreflight')) $('btnPreflight').classList.remove('has-warning');
+    scheduleAutosave();
   }
   let nudgeHistoryTimer = null;
   function scheduleNudgeHistoryPush() {
@@ -318,6 +460,7 @@
   // version of that label while the editor shows the reverted one.
   // (state.doc is null only until the boot block seeds it.)
   function replaceActiveLabel(label) {
+    if (state.doc) label.storedGraphics = state.doc.storedGraphics;
     state.label = label;
     if (state.doc) state.doc.labels[state.doc.activeIndex] = label;
   }
@@ -330,6 +473,8 @@
     state.selectedIds = [];
     renderAll();
     renderHistoryPanel();
+    $('btnPreflight').classList.remove('has-warning');
+    scheduleAutosave();
   }
 
   function jumpToHistory(index) {
@@ -345,6 +490,8 @@
     renderAll();
     updateUndoRedoButtons();
     renderHistoryPanel();
+    $('btnPreflight').classList.remove('has-warning');
+    scheduleAutosave();
     // The jumped-to entry's OWN change is excluded, so what's actually shown
     // is really the last enabled predecessor - without this, the row that's
     // now highlighted "current" contradicts what's visibly on the canvas.
@@ -417,14 +564,16 @@
     const visualEls = state.label.elements.filter(function (el) { return el.type !== 'raw'; });
     const rows = visualEls.slice().reverse().map(function (el) {
       const isCurrent = state.selectedIds.indexOf(el.id) !== -1;
-      return '<li class="layer-item' + (isCurrent ? ' layer-current' : '') + (el.hidden ? ' layer-hidden' : '') +
-        '" draggable="true" data-layer-id="' + el.id + '">' +
+      return '<li class="layer-item' + (isCurrent ? ' layer-current' : '') + (el.hidden ? ' layer-hidden' : '') + (el.locked ? ' layer-locked' : '') +
+        '" draggable="' + (el.locked ? 'false' : 'true') + '" data-layer-id="' + el.id + '">' +
         '<span class="layer-drag-handle" title="' + escapeHtml(t('Ziehen zum Umsortieren')) + '" aria-hidden="true">&#8942;&#8942;</span>' +
         '<label class="layer-vis" title="' + escapeHtml(t('In der Vorschau (und beim Export) ein-/ausblenden')) + '">' +
         '<input type="checkbox" data-layer-visible="' + el.id + '"' + (el.hidden ? '' : ' checked') +
         ' aria-label="' + escapeHtml(layerLabel(el) + ' ' + t('anzeigen')) + '">' +
         '</label>' +
-        '<input type="text" class="layer-name" data-layer-name="' + el.id + '" value="' + escapeHtml(el.name || '') + '" placeholder="' + escapeHtml(t(window.ZPLDiff.describeElement(el))) + '">' +
+        '<button type="button" class="layer-lock" data-layer-lock="' + el.id + '" aria-pressed="' + (el.locked ? 'true' : 'false') +
+        '" title="' + escapeHtml(t(el.locked ? 'Element entsperren' : 'Element sperren')) + '">' + (el.locked ? '&#128274;' : '&#128275;') + '</button>' +
+        '<input type="text" class="layer-name" data-layer-name="' + el.id + '" value="' + escapeHtml(el.name || '') + '" placeholder="' + escapeHtml(t(window.ZPLDiff.describeElement(el))) + '"' + (el.locked ? ' disabled' : '') + '>' +
         '</li>';
     }).join('');
     list.innerHTML = rows || '<li class="hint">' + escapeHtml(t('Keine Elemente auf diesem Label.')) + '</li>';
@@ -433,11 +582,13 @@
     list.querySelectorAll('[data-layer-id]').forEach(function (li) {
       const id = li.getAttribute('data-layer-id');
       li.addEventListener('click', function (e) {
-        if (e.target.closest('[data-layer-visible], [data-layer-name]')) return;
+        if (e.target.closest('[data-layer-visible], [data-layer-lock], [data-layer-name]')) return;
         state.selectedIds = [id];
         renderAll();
       });
       li.addEventListener('dragstart', function (e) {
+        const dragged = elementById(id);
+        if (dragged && dragged.locked) { e.preventDefault(); return; }
         e.dataTransfer.setData('text/plain', id);
         e.dataTransfer.effectAllowed = 'move';
         li.classList.add('layer-dragging');
@@ -456,6 +607,16 @@
         const el = elementById(cb.getAttribute('data-layer-visible'));
         if (!el) return;
         el.hidden = !cb.checked;
+        renderAll();
+        pushHistory();
+      });
+    });
+    list.querySelectorAll('[data-layer-lock]').forEach(function (button) {
+      button.addEventListener('click', function () {
+        const el = elementById(button.getAttribute('data-layer-lock'));
+        if (!el) return;
+        el.locked = !el.locked;
+        if (el.locked) state.selectedIds = state.selectedIds.filter(function (id) { return id !== el.id; });
         renderAll();
         pushHistory();
       });
@@ -592,12 +753,14 @@
     pushHistory(); // seed this label's own base snapshot
   }
 
-  function loadDocument(doc, fileName, fileHandle, serverFileName) {
+  function loadDocument(doc, fileName, fileHandle, serverFileName, options) {
     clearTimeout(nudgeHistoryTimer);
+    doc.labels.forEach(labelGuides);
     state.doc = doc;
-    state.doc.activeIndex = 0;
+    const recoveredIndex = options && options.recovered ? parseInt(doc.activeIndex, 10) || 0 : 0;
+    state.doc.activeIndex = clamp(recoveredIndex, 0, doc.labels.length - 1);
     state.labelHistories = [];
-    state.label = doc.labels[0];
+    state.label = doc.labels[state.doc.activeIndex];
     state.selectedIds = [];
     state.currentFileName = fileName || null;
     state.currentFileHandle = fileHandle || null;
@@ -609,6 +772,7 @@
     fitZoom();
     renderAll();
     $('btnSave').disabled = !hasSaveTarget();
+    if (options && options.recovered) markDocumentRecovered(); else markDocumentClean();
   }
 
   function setActiveLabel(index) {
@@ -631,6 +795,7 @@
   // the model default would silently produce a differently-sized frame.
   function insertLabel(index, label) {
     stashActiveHistory();
+    labelGuides(label);
     state.doc.labels.splice(index, 0, label);
     state.labelHistories.splice(index, 0, null);
     state.doc.activeIndex = index;
@@ -689,6 +854,7 @@
     renderAll();
     updateUndoRedoButtons();
     showToast(t('doc.deleted', { index: removed + 1 }));
+    scheduleAutosave();
   }
 
   function moveActiveLabel(delta) {
@@ -702,6 +868,7 @@
     updateLabelNav();
     updateZplSource();
     showToast(t('doc.moved', { from: from + 1, to: to + 1 }));
+    scheduleAutosave();
   }
 
   // The whole file, every frame - what "Speichern"/"Herunterladen" write.
@@ -741,6 +908,9 @@
   }
   function selectedElements() {
     return state.label.elements.filter(function (e) { return state.selectedIds.indexOf(e.id) !== -1; });
+  }
+  function editableSelectedElements() {
+    return selectedElements().filter(function (e) { return !e.locked; });
   }
   function isSelected(id) { return state.selectedIds.indexOf(id) !== -1; }
   function toggleSelection(id) {
@@ -985,6 +1155,18 @@
     return Math.round(v / g) * g;
   }
 
+  function labelGuides(label) {
+    if (!label.editorGuides || typeof label.editorGuides !== 'object') {
+      label.editorGuides = { visible: true, snap: true, vertical: [], horizontal: [] };
+    }
+    const guides = label.editorGuides;
+    if (!Array.isArray(guides.vertical)) guides.vertical = [];
+    if (!Array.isArray(guides.horizontal)) guides.horizontal = [];
+    if (guides.visible == null) guides.visible = true;
+    if (guides.snap == null) guides.snap = true;
+    return guides;
+  }
+
   function elementAABBAt(el, x, y) { return window.ZPLRender.elementAABBAt(el, x, y, renderOpts()); }
 
   // Screen-space (zoom-independent) catch radius for snapping to another
@@ -1021,6 +1203,30 @@
         movingYs.forEach(function (mv) {
           const d = Math.abs(tv - mv);
           if (d < bestDyDist) { bestDyDist = d; bestDy = tv - mv; guideY = { at: tv, other: box }; }
+        });
+      });
+    }
+
+    const persistent = labelGuides(state.label);
+    if (persistent.visible && persistent.snap) {
+      persistent.vertical.forEach(function (tv) {
+        movingXs.forEach(function (mv) {
+          const d = Math.abs(tv - mv);
+          if (d < bestDxDist) {
+            bestDxDist = d;
+            bestDx = tv - mv;
+            guideX = { at: tv, other: { x: tv, y: 0, w: 0, h: state.label.settings.heightDots } };
+          }
+        });
+      });
+      persistent.horizontal.forEach(function (tv) {
+        movingYs.forEach(function (mv) {
+          const d = Math.abs(tv - mv);
+          if (d < bestDyDist) {
+            bestDyDist = d;
+            bestDy = tv - mv;
+            guideY = { at: tv, other: { x: 0, y: tv, w: state.label.settings.widthDots, h: 0 } };
+          }
         });
       });
     }
@@ -1064,6 +1270,23 @@
     ctx.restore();
   }
 
+  function drawPersistentGuides() {
+    const guides = labelGuides(state.label);
+    if (!guides.visible || (!guides.vertical.length && !guides.horizontal.length)) return;
+    const s = state.label.settings;
+    ctx.save();
+    ctx.strokeStyle = '#00A7D6';
+    ctx.lineWidth = Math.max(1, 1 / state.zoom);
+    ctx.setLineDash([7 / state.zoom, 4 / state.zoom]);
+    guides.vertical.forEach(function (x) {
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, s.heightDots); ctx.stroke();
+    });
+    guides.horizontal.forEach(function (y) {
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(s.widthDots, y); ctx.stroke();
+    });
+    ctx.restore();
+  }
+
   function pointInPolygon(px, py, corners) {
     let inside = false;
     for (let i = 0, j = corners.length - 1; i < corners.length; j = i++) {
@@ -1085,6 +1308,7 @@
       const el = els[i];
       if (el.type === 'raw') continue; // not visual, never selectable
       if (el.hidden) continue; // not drawn - clicking where it would be should reach whatever's underneath
+      if (el.locked) continue; // locked layers are deliberately click-through; unlock them in the layers panel
       const corners = getWorldCorners(el, pad);
       if (pointInPolygon(dotX, dotY, corners)) return el;
     }
@@ -1562,7 +1786,7 @@
 
   function drawSelectionOverlay(el, showHandles) {
     ctx.save();
-    ctx.strokeStyle = '#FFD602';
+    ctx.strokeStyle = el.locked ? '#7C879D' : '#FFD602';
     ctx.lineWidth = Math.max(1, 1.5 / state.zoom);
     ctx.setLineDash([5 / state.zoom, 3 / state.zoom]);
     let b = null; // computed below when unrotated - isFreeResizable(el) (checked further down) implies isUnrotatedType, so reuse it there instead of calling getBounds(el) twice
@@ -1578,7 +1802,7 @@
       ctx.translate(el.x, el.y);
       ctx.rotate(angle);
       ctx.strokeRect(local.x - 2, local.y - 2, local.w + 4, local.h + 4);
-      if (showHandles && elementSupportsOrientation(el)) {
+      if (showHandles && !el.locked && elementSupportsOrientation(el)) {
         // Rotate handle - drawn just outside local (0,0), the pivot
         // text/barcode actually rotates around (see getRotateHandlePos),
         // in the empty diagonal next to it (up-left for FO, down-left for
@@ -1607,7 +1831,7 @@
     // Resize-handle squares only make sense (and are only interactive) when
     // this is the SOLE selected element - showing them during a multi-select
     // would suggest a per-element resize that a group-drag doesn't support.
-    if (showHandles && isFreeResizable(el)) {
+    if (showHandles && !el.locked && isFreeResizable(el)) {
       if (!b) b = getBounds(el); // isFreeResizable implies isUnrotatedType, but guard anyway rather than assume the branch above always ran first
       const hs = 6 / state.zoom;
       ctx.fillStyle = '#051E50';
@@ -1698,6 +1922,7 @@
     drawElementsOnly(state.label);
 
     if (state.grid.enabled) drawGrid();
+    drawPersistentGuides();
 
     const showHandles = state.selectedIds.length === 1;
     state.selectedIds.forEach(function (id) {
@@ -1872,6 +2097,19 @@
       propFormBuiltForId = null;
       return;
     }
+    if (el.locked) {
+      propFormBuiltForId = el.id;
+      propFormBuiltForType = 'locked';
+      container.innerHTML = '<div class="section-title">' + escapeHtml(layerLabel(el)) + '</div>' +
+        '<p class="hint locked-hint">Dieses Element ist gesperrt und kann weder auf dem Label noch über die Eigenschaften verändert werden.</p>' +
+        '<p class="hint">Position: ' + escapeHtml(formatPoint(el.x, el.y)) + '</p>' +
+        '<div class="btn-row"><button id="btnUnlockEl">Element entsperren</button></div>' +
+        '<div class="btn-row"><button id="btnCopyLockedEl">Kopieren</button></div>';
+      $('btnUnlockEl').addEventListener('click', function () { setSelectionLocked(false); });
+      $('btnCopyLockedEl').addEventListener('click', copySelected);
+      translateFragment(container);
+      return;
+    }
     if (propFormBuiltForId === el.id && propFormBuiltForType === el.type) {
       syncPropFormValues(el);
       return;
@@ -2034,12 +2272,14 @@
     html += '<p class="hint">Der tats&auml;chlich erzeugte ZPL-Code f&uuml;r genau dieses Element &ndash; dieselben Zeilen sind im Tab &bdquo;ZPL-Code&ldquo; hervorgehoben.</p>';
 
     html += '<div class="btn-row"><button id="btnDuplicateEl" title="Kopie mit gleichen Eigenschaften erstellen (Strg+D)">Duplizieren</button></div>';
+    html += '<div class="btn-row"><button id="btnLockEl">Element sperren</button></div>';
     html += '<div class="btn-row"><button id="btnBringToFront" title="Vor allen anderen Elementen anzeigen">In den Vordergrund</button><button id="btnSendToBack" title="Hinter allen anderen Elementen anzeigen">In den Hintergrund</button></div>';
     html += '<div class="btn-row"><button id="btnDeleteEl" class="danger">Element löschen</button></div>';
     container.innerHTML = html;
     wirePropForm(el);
     syncPropFormValues(el);
     $('btnDuplicateEl').addEventListener('click', duplicateSelected);
+    $('btnLockEl').addEventListener('click', function () { setSelectionLocked(true); });
     $('btnBringToFront').addEventListener('click', function () { reorderSelected(true); });
     $('btnSendToBack').addEventListener('click', function () { reorderSelected(false); });
     if ($('btnCopyTextFormat')) {
@@ -2072,10 +2312,20 @@
   }
 
   function deleteSelected() {
-    const ids = state.selectedIds.slice();
+    const ids = editableSelectedElements().map(function (el) { return el.id; });
     if (!ids.length) return;
     state.label.elements = state.label.elements.filter(function (x) { return ids.indexOf(x.id) === -1; });
     state.selectedIds = [];
+    propFormBuiltForId = null;
+    renderAll();
+    pushHistory();
+  }
+
+  function setSelectionLocked(locked) {
+    const els = selectedElements();
+    if (!els.length) return;
+    els.forEach(function (el) { el.locked = !!locked; });
+    if (locked) state.selectedIds = [];
     propFormBuiltForId = null;
     renderAll();
     pushHistory();
@@ -2089,8 +2339,81 @@
   function cloneElement(el) {
     return JSON.parse(JSON.stringify(el, uint8JsonReplacer), uint8JsonReviver);
   }
+  let elementClipboard = null;
+  let pasteSequence = 0;
+
+  function copyElementsToClipboard(els) {
+    if (!els.length) return;
+    const storedGraphics = {};
+    els.forEach(function (el) {
+      if (el.storedName && state.doc.storedGraphics && state.doc.storedGraphics[el.storedName]) {
+        storedGraphics[el.storedName] = cloneElement(state.doc.storedGraphics[el.storedName]);
+      }
+    });
+    elementClipboard = {
+      elements: els.map(cloneElement),
+      storedGraphics: storedGraphics,
+    };
+    pasteSequence = 0;
+    showToast(els.length === 1 ? 'Element kopiert.' : els.length + ' Elemente kopiert.');
+  }
+
+  function copySelected() {
+    copyElementsToClipboard(selectedElements());
+  }
+
+  function cutSelected() {
+    const els = editableSelectedElements();
+    if (!els.length) return;
+    copyElementsToClipboard(els);
+    deleteSelected();
+  }
+
+  function pasteElements() {
+    if (!elementClipboard || !elementClipboard.elements.length) return;
+    pasteSequence++;
+    const offset = (state.grid.enabled ? state.grid.size : 20) * pasteSequence;
+    const groupIdMap = {};
+    const storedNameMap = {};
+    const newIds = [];
+    Object.keys(elementClipboard.storedGraphics || {}).forEach(function (name, index) {
+      let targetName = name;
+      const incoming = elementClipboard.storedGraphics[name];
+      const existing = state.doc.storedGraphics[name];
+      if (existing && JSON.stringify(existing, uint8JsonReplacer) !== JSON.stringify(incoming, uint8JsonReplacer)) {
+        targetName = 'R:CP' + Date.now().toString(36).toUpperCase() + index + '.GRF';
+      }
+      if (!state.doc.storedGraphics[targetName]) {
+        const graphic = cloneElement(incoming);
+        graphic.name = targetName;
+        state.doc.storedGraphics[targetName] = graphic;
+      }
+      storedNameMap[name] = targetName;
+    });
+    elementClipboard.elements.forEach(function (source) {
+      const copy = cloneElement(source);
+      copy.id = M.uid(copy.type);
+      copy.locked = false;
+      copy.hidden = false;
+      if (copy.storedName && storedNameMap[copy.storedName]) copy.storedName = storedNameMap[copy.storedName];
+      if (copy.groupId) {
+        if (!groupIdMap[copy.groupId]) groupIdMap[copy.groupId] = M.uid('grp');
+        copy.groupId = groupIdMap[copy.groupId];
+      }
+      copy.x += offset;
+      copy.y += offset;
+      state.label.elements.push(copy);
+      newIds.push(copy.id);
+    });
+    state.selectedIds = newIds;
+    propFormBuiltForId = null;
+    renderAll();
+    pushHistory();
+    showToast(newIds.length === 1 ? 'Element eingefügt.' : newIds.length + ' Elemente eingefügt.');
+  }
+
   function duplicateSelected() {
-    const els = selectedElements();
+    const els = editableSelectedElements();
     if (!els.length) return;
     const offset = state.grid.enabled ? state.grid.size : 20;
     // Copies of grouped elements stay grouped WITH EACH OTHER (so the
@@ -2124,7 +2447,7 @@
   // covers the common real case (a background frame/box added after the
   // fields it should sit behind) without needing a separate z-index field.
   function reorderSelected(toFront) {
-    const ids = state.selectedIds;
+    const ids = editableSelectedElements().map(function (el) { return el.id; });
     if (!ids.length) return;
     const selected = state.label.elements.filter(function (el) { return ids.indexOf(el.id) !== -1; });
     const rest = state.label.elements.filter(function (el) { return ids.indexOf(el.id) === -1; });
@@ -2134,7 +2457,7 @@
   }
 
   function selectAll() {
-    state.selectedIds = state.label.elements.filter(function (el) { return el.type !== 'raw'; }).map(function (el) { return el.id; });
+    state.selectedIds = state.label.elements.filter(function (el) { return el.type !== 'raw' && !el.hidden && !el.locked; }).map(function (el) { return el.id; });
     renderAll();
     buildPropForm();
   }
@@ -2146,7 +2469,7 @@
   // each element (JSON history snapshots pick it up for free, same as any
   // other field) and is not written to the generated ZPL.
   function groupSelected() {
-    const ids = state.selectedIds;
+    const ids = editableSelectedElements().map(function (el) { return el.id; });
     if (ids.length < 2) return;
     const gid = M.uid('grp');
     ids.forEach(function (id) {
@@ -2159,7 +2482,7 @@
   }
   function ungroupSelected() {
     let changed = false;
-    selectedElements().forEach(function (el) {
+    editableSelectedElements().forEach(function (el) {
       if (el.groupId) { el.groupId = null; changed = true; }
     });
     if (!changed) return;
@@ -2173,7 +2496,7 @@
   // combined extent). Works for rotated text/barcode too via getBounds(),
   // which already accounts for FT vs FO origin.
   function alignSelection(mode) {
-    const els = selectedElements();
+    const els = editableSelectedElements();
     if (els.length < 2) return;
     const boxed = els.map(function (el) { return { el: el, b: getBounds(el) }; });
     if (mode === 'left') {
@@ -2214,7 +2537,7 @@
   // not the true rotated AABB) treatment in both - consistent, if not
   // pixel-perfect for a rotated element mixed into the same selection.
   function distributeSelection(axis) {
-    const els = selectedElements();
+    const els = editableSelectedElements();
     if (els.length < 3) return;
     const boxed = els.map(function (el) { return { el: el, b: getBounds(el) }; });
     const isH = axis === 'horizontal';
@@ -2245,6 +2568,7 @@
     // together, so this also tells us whether to offer "Gruppieren" (create)
     // or "Gruppierung aufheben" (dissolve) as the primary action.
     const groupIds = els.map(function (el) { return el.groupId; }).filter(Boolean);
+    const lockedCount = els.filter(function (el) { return el.locked; }).length;
     const isWholeGroup = groupIds.length === n && new Set(groupIds).size === 1;
     let html = '<div class="section-title">' + n + ' Elemente ausgewählt' + (isWholeGroup ? ' (Gruppe)' : '') + '</div>';
     html += '<p class="hint">Ziehen zum gemeinsamen Verschieben (Umschalt = Achse sperren). Strg/Cmd+Klick fügt einzelne Elemente hinzu/entfernt sie, Rechteck-Auswahl auf leerer Fläche wählt mehrere aus.</p>';
@@ -2267,6 +2591,10 @@
     if (!isWholeGroup) html += '<button id="btnGroupEls" title="Diese Elemente dauerhaft verknüpfen, damit sie sich künftig immer gemeinsam auswählen und verschieben lassen (Strg+G)">Gruppieren</button>';
     if (groupIds.length) html += '<button id="btnUngroupEls" title="Gruppierung aufheben (Strg+Umschalt+G)">Gruppierung aufheben</button>';
     html += '</div>';
+    html += '<div class="btn-row">' +
+      (lockedCount < n ? '<button id="btnLockEls">Ausgewählte sperren</button>' : '') +
+      (lockedCount ? '<button id="btnUnlockEls">Ausgewählte entsperren</button>' : '') +
+      '</div>';
     html += '<div class="btn-row"><button id="btnDuplicateEl" title="Kopien mit gleichen Eigenschaften erstellen (Strg+D)">Duplizieren</button></div>';
     html += '<div class="btn-row"><button id="btnBringToFront" title="Vor allen anderen Elementen anzeigen">In den Vordergrund</button><button id="btnSendToBack" title="Hinter allen anderen Elementen anzeigen">In den Hintergrund</button></div>';
     const hasText = els.some(function (el) { return el.type === 'text'; });
@@ -2283,6 +2611,8 @@
     });
     if ($('btnGroupEls')) $('btnGroupEls').addEventListener('click', groupSelected);
     if ($('btnUngroupEls')) $('btnUngroupEls').addEventListener('click', ungroupSelected);
+    if ($('btnLockEls')) $('btnLockEls').addEventListener('click', function () { setSelectionLocked(true); });
+    if ($('btnUnlockEls')) $('btnUnlockEls').addEventListener('click', function () { setSelectionLocked(false); });
     $('btnDeleteEl').addEventListener('click', deleteSelected);
     $('btnDuplicateEl').addEventListener('click', duplicateSelected);
     $('btnBringToFront').addEventListener('click', function () { reorderSelected(true); });
@@ -3141,7 +3471,7 @@
   });
 
   // ---------------------------------------------------------------------
-  // ZPL source tab
+  // Bottom ZPL console
   // ---------------------------------------------------------------------
   function updateZplSource() {
     if (document.activeElement === $('zplSource')) return;
@@ -3294,6 +3624,7 @@
       // document here would silently delete the other labels.
       const doc = window.ZPLParser.parseDocument($('zplSource').value);
       const parsed = doc.labels[0];
+      labelGuides(parsed);
       parsed.storedGraphics = state.doc.storedGraphics;
       state.doc.labels[state.doc.activeIndex] = parsed;
       state.label = parsed;
@@ -3354,7 +3685,6 @@
       btn.classList.add('active');
       btn.setAttribute('aria-selected', 'true');
       $('tab-' + btn.dataset.tab).classList.add('active');
-      if (btn.dataset.tab === 'zpl') updateZplSource();
       if (btn.dataset.tab === 'merge') renderMergePreview();
       if (btn.dataset.tab === 'history') renderHistoryPanel();
       if (btn.dataset.tab === 'layers') renderLayersPanel();
@@ -3687,7 +4017,7 @@
     // single-resizable-element case) so mousemove can compute deltas from a
     // stable baseline regardless of how many elements are selected.
     const starts = {};
-    selectedElements().forEach(function (sel) {
+    editableSelectedElements().forEach(function (sel) {
       starts[sel.id] = {
         x: sel.x, y: sel.y,
         w: (sel.type === 'box' || sel.type === 'line' || sel.type === 'ellipse') ? sel.widthDots : (sel.type === 'circle' ? sel.diameter : (sel.displayWidthPx != null ? sel.displayWidthPx : sel.widthPx)),
@@ -3774,6 +4104,10 @@
     // the user didn't click on this time).
     const items = [];
     if (el) {
+      items.push({ label: 'Kopieren', shortcut: 'Strg+C', run: copySelected });
+      items.push({ label: 'Ausschneiden', shortcut: 'Strg+X', run: cutSelected });
+      if (elementClipboard) items.push({ label: 'Einfügen', shortcut: 'Strg+V', run: pasteElements });
+      items.push({ sep: true });
       items.push({ label: 'Duplizieren', shortcut: 'Strg+D', run: duplicateSelected });
       items.push({ label: 'In den Vordergrund', run: function () { reorderSelected(true); } });
       items.push({ label: 'In den Hintergrund', run: function () { reorderSelected(false); } });
@@ -3795,6 +4129,7 @@
       items.push({ sep: true });
       items.push({ label: 'Löschen', shortcut: 'Entf', danger: true, run: deleteSelected });
     } else {
+      if (elementClipboard) items.push({ label: 'Einfügen', shortcut: 'Strg+V', run: pasteElements });
       items.push({ label: 'Alles auswählen', shortcut: 'Strg+A', run: selectAll });
       if (state.selectedIds.length) {
         items.push({ label: 'Auswahl aufheben', shortcut: 'Escape', run: function () { state.selectedIds = []; renderAll(); buildPropForm(); } });
@@ -3900,12 +4235,14 @@
       let hitIds = [];
       if (draggedFar) {
         state.label.elements.forEach(function (el) {
+          if (el.type === 'raw' || el.hidden || el.locked) return;
           const b = getAABB(el);
           if (b.x < x2 && b.x + b.w > x1 && b.y < y2 && b.y + b.h > y1) hitIds.push(el.id);
         });
         // A marquee that only grazes one member of a persistent group still
         // pulls in the whole group, same as a plain click would.
         hitIds = expandIdsToGroups(hitIds);
+        hitIds = hitIds.filter(function (id) { const el = elementById(id); return el && !el.hidden && !el.locked; });
       }
       if (d.additive) {
         if (draggedFar) { const set = new Set(state.selectedIds.concat(hitIds)); state.selectedIds = Array.from(set); }
@@ -3946,6 +4283,11 @@
       e.preventDefault();
       return;
     }
+    if ((e.ctrlKey || e.metaKey) && e.code === 'Backquote') {
+      setConsoleOpen(!workspacePrefs.consoleOpen);
+      e.preventDefault();
+      return;
+    }
     const tag = (document.activeElement && document.activeElement.tagName) || '';
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); }
@@ -3953,12 +4295,15 @@
     }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') { e.preventDefault(); copySelected(); return; }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'x') { e.preventDefault(); cutSelected(); return; }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') { e.preventDefault(); pasteElements(); return; }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') { e.preventDefault(); duplicateSelected(); return; }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') { e.preventDefault(); selectAll(); return; }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') { e.preventDefault(); if (e.shiftKey) ungroupSelected(); else groupSelected(); return; }
     if (e.key === 'Escape' && state.selectedIds.length) { state.selectedIds = []; renderAll(); e.preventDefault(); return; }
     if (!state.selectedIds.length) return;
-    const els = selectedElements();
+    const els = editableSelectedElements();
     if (!els.length) return;
     const step = e.shiftKey ? 10 : 1;
     let moved = true;
@@ -4077,6 +4422,92 @@
     state.unit = e.target.value === 'mm' ? 'mm' : 'dots';
     syncGridSizeInput();
   });
+
+  // ---------------------------------------------------------------------
+  // Local crash recovery. The complete editor document is stored (including
+  // graphics and editor-only locks/guides), while actual FileSystem handles
+  // deliberately are not. localStorage failures/quota limits never block
+  // editing; the compact status in the toolbar makes that state visible.
+  const AUTOSAVE_KEY = 'zplStudioAutosaveV1';
+  let autosaveTimer = null;
+  let cleanDocumentSnapshot = null;
+  let autosaveStatusKey = '';
+  let autosaveStatusFailed = false;
+
+  function serializedDocument() {
+    if (!state.doc) return '';
+    // Every parsed label points at the same document-level graphic registry.
+    // Strip those repeated references before JSON serialization or a spool
+    // with 20 labels would store the identical bitmap data 21 times.
+    const compact = Object.assign({}, state.doc, {
+      labels: state.doc.labels.map(function (label) { return Object.assign({}, label, { storedGraphics: undefined }); }),
+    });
+    return JSON.stringify(compact, uint8JsonReplacer);
+  }
+  function setAutosaveStatus(text, failed) {
+    const status = $('autosaveStatus');
+    if (!status) return;
+    autosaveStatusKey = text || '';
+    autosaveStatusFailed = !!failed;
+    status.textContent = text ? t(text) : '';
+    status.classList.toggle('is-error', !!failed);
+  }
+  function removeAutosaveDraft() {
+    try { localStorage.removeItem(AUTOSAVE_KEY); } catch (e) { /* recovery is optional */ }
+  }
+  function writeAutosaveNow() {
+    clearTimeout(autosaveTimer);
+    autosaveTimer = null;
+    if (!state.doc) return;
+    const serialized = serializedDocument();
+    if (serialized === cleanDocumentSnapshot) {
+      removeAutosaveDraft();
+      setAutosaveStatus('Gespeichert');
+      return;
+    }
+    try {
+      localStorage.setItem(AUTOSAVE_KEY, JSON.stringify({
+        version: 1,
+        savedAt: Date.now(),
+        fileName: state.currentFileName || state.currentServerFileName || null,
+        document: serialized,
+      }));
+      setAutosaveStatus('Lokal gesichert');
+      $('autosaveStatus').title = 'Ungespeicherter Stand wurde lokal im Browser gesichert.';
+    } catch (e) {
+      setAutosaveStatus('Autosave fehlgeschlagen', true);
+      $('autosaveStatus').title = 'Der lokale Browser-Speicher ist nicht verfügbar oder voll.';
+    }
+  }
+  function scheduleAutosave() {
+    clearTimeout(autosaveTimer);
+    autosaveTimer = setTimeout(writeAutosaveNow, 700);
+  }
+  function markDocumentClean() {
+    cleanDocumentSnapshot = serializedDocument();
+    removeAutosaveDraft();
+    setAutosaveStatus(state.currentFileName || state.currentServerFileName ? 'Gespeichert' : 'Bereit');
+  }
+  function markDocumentRecovered() {
+    cleanDocumentSnapshot = null;
+    setAutosaveStatus('Wiederhergestellt');
+    scheduleAutosave();
+  }
+  function readAutosaveDraft() {
+    try {
+      const draft = JSON.parse(localStorage.getItem(AUTOSAVE_KEY) || 'null');
+      if (!draft || draft.version !== 1 || typeof draft.document !== 'string') return null;
+      const doc = JSON.parse(draft.document, uint8JsonReviver);
+      if (!doc || !Array.isArray(doc.labels) || !doc.labels.length) return null;
+      doc.storedGraphics = doc.storedGraphics || {};
+      doc.labels.forEach(function (label) { label.storedGraphics = doc.storedGraphics; });
+      return { doc: doc, savedAt: draft.savedAt, fileName: draft.fileName };
+    } catch (e) {
+      removeAutosaveDraft();
+      return null;
+    }
+  }
+  window.addEventListener('beforeunload', writeAutosaveNow);
 
   // ---------------------------------------------------------------------
   // File: new / open / save / download
@@ -4223,6 +4654,7 @@
     // file that was actually opened.
     const adjusted = DPI.renameForDpi(name, currentDpi());
     downloadBlob(new Blob([text], { type: 'text/plain' }), adjusted);
+    markDocumentClean();
     if (adjusted !== name) showToast(t('dpi.download-renamed', { name: adjusted, dpi: currentDpi() }));
   });
 
@@ -4768,6 +5200,7 @@
     if (state.currentServerFileName) {
       try {
         await writeServerTemplate(state.currentServerFileName, text);
+        markDocumentClean();
         showToast('Gespeichert: ' + state.currentFileName);
       } catch (err) {
         showToast('Speichern fehlgeschlagen (' + err.message + '). Bitte über „Herunterladen“ sichern.', true);
@@ -4780,6 +5213,7 @@
       writable = await state.currentFileHandle.createWritable();
       await writable.write(text);
       await writable.close();
+      markDocumentClean();
       showToast('Gespeichert: ' + state.currentFileName);
     } catch (err) {
       if (writable) { try { await writable.abort(); } catch (e) { /* best effort */ } }
@@ -5302,11 +5736,135 @@
   $('modalClose').addEventListener('click', function () { closeModal(true); });
   $('modalOverlay').addEventListener('click', function (e) { if (e.target === $('modalOverlay')) closeModal(true); });
 
+  function guideText(values) {
+    return values.map(function (dots) {
+      return state.unit === 'mm' ? (dotsToMm(dots).toFixed(2).replace(/\.00$/, '')) : String(Math.round(dots));
+    }).join('\n');
+  }
+  function parseGuideText(text, maxDots) {
+    const values = String(text || '').split(/[\n;]+/).map(function (line) {
+      const n = parseFloat(line.trim().replace(',', '.'));
+      if (!isFinite(n)) return null;
+      const dots = state.unit === 'mm' ? DPI.mmToDots(n, currentDpi()) : n;
+      return Math.round(clamp(dots, 0, maxDots));
+    }).filter(function (value) { return value != null; });
+    return Array.from(new Set(values)).sort(function (a, b) { return a - b; });
+  }
+  $('btnGuides').addEventListener('click', function () {
+    const guides = labelGuides(state.label);
+    const unitLabel = state.unit === 'mm' ? 'mm' : 'Dots';
+    const body = '<div class="guides-dialog">' +
+      '<p class="hint">Eine Position pro Zeile. Beim Verschieben rasten Kanten und Mittelpunkte an sichtbaren Hilfslinien ein.</p>' +
+      '<div class="field-row-inline">' +
+        field('Vertikal · X (' + unitLabel + ')', '<textarea id="guideVertical" rows="7" spellcheck="false">' + escapeHtml(guideText(guides.vertical)) + '</textarea>') +
+        field('Horizontal · Y (' + unitLabel + ')', '<textarea id="guideHorizontal" rows="7" spellcheck="false">' + escapeHtml(guideText(guides.horizontal)) + '</textarea>') +
+      '</div>' +
+      '<div class="field-row field-check"><input type="checkbox" id="guideVisible"' + (guides.visible ? ' checked' : '') + '><label for="guideVisible">Hilfslinien anzeigen</label></div>' +
+      '<div class="field-row field-check"><input type="checkbox" id="guideSnap"' + (guides.snap ? ' checked' : '') + '><label for="guideSnap">An Hilfslinien einrasten</label></div>' +
+      '<div class="btn-row"><button id="btnGuideClear">Alle entfernen</button><button id="btnGuideApply" class="primary">Übernehmen</button></div>' +
+      '</div>';
+    openModal('Hilfslinien', body);
+    $('btnGuideApply').addEventListener('click', function () {
+      guides.vertical = parseGuideText($('guideVertical').value, state.label.settings.widthDots);
+      guides.horizontal = parseGuideText($('guideHorizontal').value, state.label.settings.heightDots);
+      guides.visible = $('guideVisible').checked;
+      guides.snap = $('guideSnap').checked;
+      closeModal(false);
+      renderAll();
+      pushHistory();
+    });
+    $('btnGuideClear').addEventListener('click', function () {
+      guides.vertical = [];
+      guides.horizontal = [];
+      closeModal(false);
+      renderAll();
+      pushHistory();
+    });
+  });
+
+  function preflightReport(label) {
+    const issues = [];
+    const s = label.settings;
+    const visible = label.elements.filter(function (el) { return el && !el.hidden; });
+    if (!visible.length) issues.push({ severity: 'warning', message: 'Das Label enthält keine sichtbaren Elemente.' });
+    visible.forEach(function (el) {
+      if (el.type === 'raw') {
+        issues.push({ severity: 'error', id: el.id, message: 'Nicht zugeordneter ZPL-Code kann in Rasterausgaben fehlen.' });
+        return;
+      }
+      let bounds;
+      try { bounds = getAABB(el); } catch (e) {
+        issues.push({ severity: 'error', id: el.id, message: 'Element kann nicht zuverlässig dargestellt werden: ' + e.message });
+        return;
+      }
+      if (bounds.x < 0 || bounds.y < 0 || bounds.x + bounds.w > s.widthDots || bounds.y + bounds.h > s.heightDots) {
+        issues.push({ severity: 'warning', id: el.id, message: 'Element liegt ganz oder teilweise außerhalb des Etiketts.' });
+      }
+      if (el.type === 'barcode') {
+        const one = Object.assign({}, label, { elements: [el], rawTail: [] });
+        const raster = window.ZPLRender.inspectRasterOutput(one, { resolveText: applySampleData, dpi: labelDpi(label) });
+        raster.blockers.forEach(function (issue) {
+          issues.push({ severity: 'error', id: el.id, message: rasterIssueText(issue) });
+        });
+        raster.warnings.forEach(function (issue) {
+          issues.push({ severity: 'warning', id: el.id, message: rasterIssueText(issue) });
+        });
+      }
+    });
+    const tailRaster = window.ZPLRender.inspectRasterOutput(Object.assign({}, label, { elements: [] }), {
+      resolveText: applySampleData,
+      dpi: labelDpi(label),
+    });
+    tailRaster.blockers.forEach(function (issue) {
+      issues.push({ severity: 'error', message: rasterIssueText(issue) });
+    });
+    const variables = findVariablesIn(label);
+    if (variables.length) {
+      issues.push({ severity: 'info', message: variables.length + ' Platzhalter bleiben für Seriendruck oder spätere Ersetzung erhalten: ' + variables.map(function (name) { return '$' + name + '$'; }).join(', ') });
+    }
+    const hiddenCount = label.elements.filter(function (el) { return el && el.hidden; }).length;
+    if (hiddenCount) issues.push({ severity: 'info', message: hiddenCount + ' ausgeblendete Element(e) werden nicht exportiert.' });
+    return issues;
+  }
+
+  $('btnPreflight').addEventListener('click', function () {
+    const issues = preflightReport(state.label);
+    const errors = issues.filter(function (issue) { return issue.severity === 'error'; }).length;
+    const warnings = issues.filter(function (issue) { return issue.severity === 'warning'; }).length;
+    const summaryClass = errors ? ' error' : (warnings ? ' warning' : ' ok');
+    const summaryText = errors
+      ? errors + ' Fehler und ' + warnings + ' Warnung(en) gefunden.'
+      : (warnings ? warnings + ' Warnung(en) gefunden.' : 'Keine druckrelevanten Probleme gefunden.');
+    const rows = issues.map(function (issue) {
+      const el = issue.id ? elementById(issue.id) : null;
+      return '<li class="preflight-item preflight-' + issue.severity + '">' +
+        '<span class="preflight-level">' + (issue.severity === 'error' ? 'Fehler' : (issue.severity === 'warning' ? 'Warnung' : 'Info')) + '</span>' +
+        '<span class="preflight-message">' + escapeHtml(issue.message) + (el ? '<small>' + escapeHtml(layerLabel(el)) + '</small>' : '') + '</span>' +
+        (el ? '<button type="button" data-preflight-id="' + el.id + '">Auswählen</button>' : '') +
+        '</li>';
+    }).join('');
+    openModal('Preflight', '<div class="preflight-summary' + summaryClass + '">' + escapeHtml(summaryText) + '</div>' +
+      (rows ? '<ul class="preflight-list">' + rows + '</ul>' : '<p class="preflight-empty">Das Label ist für die unterstützten Ausgaben bereit.</p>'));
+    $('btnPreflight').classList.toggle('has-warning', !!(errors || warnings));
+    $('modalBody').querySelectorAll('[data-preflight-id]').forEach(function (button) {
+      button.addEventListener('click', function () {
+        const el = elementById(button.getAttribute('data-preflight-id'));
+        if (!el) return;
+        state.selectedIds = groupMemberIds(el);
+        closeModal(false);
+        const propsTab = document.querySelector('.tab-btn[data-tab="props"]');
+        if (propsTab) propsTab.click();
+        renderAll();
+      });
+    });
+  });
+
   $('btnShortcuts').addEventListener('click', function () {
     const rows = [
       ['Strg/Cmd + Z', 'Rückgängig'],
       ['Strg/Cmd + Y oder Strg/Cmd + Umschalt + Z', 'Wiederholen'],
       ['Strg/Cmd + D', 'Ausgewählte Elemente duplizieren'],
+      ['Strg/Cmd + C / X / V', 'Elemente kopieren, ausschneiden und einfügen'],
       ['Strg/Cmd + A', 'Alle Elemente auswählen'],
       ['Entf / Rücktaste', 'Ausgewählte Elemente löschen'],
       ['Pfeiltasten', 'Ausgewählte Elemente um 1 Dot verschieben (mit Umschalt: 10 Dots)'],
@@ -5917,6 +6475,7 @@
     updateLabelNav();
     renderHistoryPanel();
     updateUndoRedoButtons();
+    setAutosaveStatus(autosaveStatusKey, autosaveStatusFailed);
   });
 
   // ---------------------------------------------------------------------
@@ -5927,8 +6486,21 @@
   // holds from the very first frame rather than only after the first open.
   state.doc = singleLabelDocument(state.label);
   updateLabelNav();
-  window.addEventListener('resize', function () { fitZoom(); drawLabel(); });
-  loadLabel(M.defaultLabel(), null, null);
+  window.addEventListener('resize', function () {
+    applyWorkspaceDimensions();
+    fitZoom();
+    drawLabel();
+  });
+  const recoveryDraft = readAutosaveDraft();
+  if (recoveryDraft && confirm('Es gibt einen lokal gesicherten, noch nicht gespeicherten Stand' +
+      (recoveryDraft.savedAt ? ' vom ' + new Date(recoveryDraft.savedAt).toLocaleString(editorLocaleTag()) : '') +
+      '. Jetzt wiederherstellen?')) {
+    loadDocument(recoveryDraft.doc, recoveryDraft.fileName, null, null, { recovered: true });
+    showToast('Lokalen Stand wiederhergestellt. Bitte anschließend speichern oder herunterladen.');
+  } else {
+    if (recoveryDraft) removeAutosaveDraft();
+    loadLabel(M.defaultLabel(), null, null);
+  }
 
   // Probe the optional client once for both integrations. A missing script
   // (CSP/cache mismatch/third-party embedding), network failure or static

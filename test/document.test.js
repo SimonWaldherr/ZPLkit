@@ -31,6 +31,7 @@ function load() {
   // the command verbatim (by design) and the registry stays empty.
   loadModule(context, 'inflate.js');
   loadModule(context, 'gfa-codec.js');
+  loadModule(context, 'editor-metadata.js');
   loadModule(context, 'zpl-parser.js');
   loadModule(context, 'zpl-generator.js');
   return context;

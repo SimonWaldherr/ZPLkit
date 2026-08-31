@@ -3,6 +3,7 @@
   'use strict';
 
   const M = global.ZPLModel;
+  const EditorMetadata = global.ZPLEditorMetadata;
 
   function esc(v) { return v == null ? '' : String(v); }
 
@@ -272,6 +273,9 @@
     if (s.darkness != null && s.darkness !== '') out += '~SD' + s.darkness + '\n';
     if (s.printSpeed) out += '^PR' + s.printSpeed + '\n';
     if (s.note) out += '^FXNOTIZ:' + s.note.replace(/[\^~]/g, '') + '^FS\n';
+    if (EditorMetadata && opts.editorMetadata !== false) {
+      EditorMetadata.encode(label).forEach(function (command) { out += command + '\n'; });
+    }
 
     // rawTail entries carry the elements-array length at the moment they were
     // encountered during parsing, so they can be re-interleaved at that same

@@ -15,7 +15,34 @@ Die Anwendung kann als statische Website betrieben werden oder mit dem mitgelief
 - ZPL sowie PNG, JPG, GIF und PDF exportieren
 - Seriendruck mit CSV- oder XLSX-Daten vorbereiten
 - ZPL-Dateien vergleichen und ZPL-Befehle erläutern
+- Arbeitsbereich mit größenveränderbaren Seitenleisten und einblendbarer ZPL-Konsole anpassen
+- Zwischen System-, hellem, dunklem und kontrastreichem Theme wechseln; Layout und Theme bleiben lokal gespeichert
+- Elemente mit intelligentem Snapping, frei gesetzten Hilfslinien und Ebenensperren präzise anordnen
+- Elemente und Gruppen per Zwischenablage zwischen Labels kopieren oder verschieben
+- Ungespeicherte Arbeit automatisch lokal sichern und nach einem Neustart wiederherstellen
+- Labels vor Export und Druck per Preflight auf Grenzen, Barcodes, Ruhebereiche und nicht darstellbares ZPL prüfen
 - ZPLkit als eigenständige Browser- oder CommonJS-Bibliothek einbinden
+
+Hilfslinien werden über „Hilfslinien…“ in der Kopfzeile als X- und
+Y-Positionen gepflegt. Eine Position steht jeweils in einer eigenen Zeile;
+die aktuelle Einheit (Dots oder Millimeter) gilt auch für diesen Dialog.
+Sperren und Sichtbarkeit befinden sich im Tab „Ebenen“. `Ctrl/Cmd+C`, `X`
+und `V` funktionieren für Elemente und Gruppen, ohne die normale
+Zwischenablage in Textfeldern zu überschreiben.
+
+## Editor-Metadaten im ZPL
+
+ZPLkit schreibt Hilfslinien, Ebenennamen, Sperren, Gruppen und ausgeblendete
+Objekte als versionierte `^FXZPLKIT_META`-Kommentare direkt in die ZPL-Datei.
+`^FX` ist der offizielle ZPL-Kommentarbefehl und beeinflusst den Ausdruck
+nicht. Größere Zustände werden in mehrere Base64URL-Chunks zerlegt und mit
+CRC32 geprüft. Fehlt ein Chunk oder stimmt die Prüfsumme nicht, ignoriert der
+Editor die Metadaten sicher; das druckbare Label bleibt davon unberührt.
+
+Fremde `^FX`-Kommentare bleiben erhalten. Labels ohne Editor-spezifischen
+Zustand bekommen keinen Metadatenblock. Eine genaue Formatspezifikation,
+Fehlerregeln und das Abschalten beim Generieren stehen in
+[`docs/editor-metadata.md`](docs/editor-metadata.md).
 
 ## Dateien mit mehreren Etiketten
 
@@ -28,8 +55,8 @@ ausgegeben.
 Der Editor zeigt jetzt eine Etikettenleiste in der Kopfzeile (nur sichtbar,
 wenn die Datei mehr als ein Etikett enthält) mit Blättern, Auswahlliste sowie
 Einfügen, Duplizieren, Verschieben und Löschen. „Herunterladen“ und
-„Speichern“ schreiben immer die ganze Datei; der Tab „ZPL-Code“ zeigt und
-bearbeitet bewusst nur das gewählte Etikett und sagt das auch.
+„Speichern“ schreiben immer die ganze Datei; die „ZPL-Konsole“ am unteren
+Rand zeigt und bearbeitet bewusst nur das gewählte Etikett und sagt das auch.
 
 Dateiweit statt pro Etikett behandelt werden der Treiber-Vorspann und die
 `~DG`-Grafiken: ein Logo, das zwölf Etiketten platzieren, wird genau einmal

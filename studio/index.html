@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="de">
+<html lang="de" data-theme="system">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -66,9 +66,16 @@
       <option value="dots">Dots</option>
       <option value="mm">mm</option>
     </select>
+    <button id="btnGuides" title="Hilfslinien verwalten" data-i18n="Hilfslinien…" data-i18n-title="Hilfslinien verwalten">Hilfslinien…</button>
   </div>
 
   <div class="tb-group">
+    <select id="themeSelect" title="Darstellung" aria-label="Darstellung" data-i18n-title="Darstellung" data-i18n-aria-label="Darstellung">
+      <option value="system" data-i18n="System">System</option>
+      <option value="light" data-i18n="Hell">Hell</option>
+      <option value="dark" data-i18n="Dunkel">Dunkel</option>
+      <option value="contrast" data-i18n="Hoher Kontrast">Hoher Kontrast</option>
+    </select>
     <select id="languageSelect" title="Sprache" aria-label="Sprache" data-i18n-title="Sprache" data-i18n-aria-label="Sprache">
       <option value="de">DE</option>
       <option value="en">EN</option>
@@ -77,7 +84,9 @@
   </div>
 
   <div class="tb-group tb-right">
+    <span id="autosaveStatus" class="autosave-status" role="status" aria-live="polite"></span>
     <label class="chk"><input type="checkbox" id="chkSampleData"> <span data-i18n="Beispieldaten anzeigen">Beispieldaten anzeigen</span></label>
+    <button id="btnPreflight" title="Label vor Export und Druck prüfen" data-i18n="Preflight…" data-i18n-title="Label vor Export und Druck prüfen">Preflight…</button>
     <button id="btnCompareLabels" title="Aktuelles Label mit einem anderen vergleichen (aus der Bibliothek oder per Upload)" data-i18n="Vergleichen…" data-i18n-title="Aktuelles Label mit einem anderen vergleichen (aus der Bibliothek oder per Upload)">Vergleichen…</button>
     <button id="btnLabelary" title="Exakte Druckvorschau über den öffentlichen Labelary-Dienst abrufen (sendet den ZPL-Code an labelary.com)" data-i18n="Exakte Vorschau…" data-i18n-title="Exakte Druckvorschau über den öffentlichen Labelary-Dienst abrufen (sendet den ZPL-Code an labelary.com)">Exakte Vorschau…</button>
     <button id="btnShortcuts" title="Tastaturkürzel anzeigen" data-i18n-title="Tastaturkürzel anzeigen">?</button>
@@ -85,7 +94,7 @@
 </header>
 
 <div class="main">
-  <aside class="toolbox">
+  <aside class="toolbox" id="toolbox">
     <div class="tool-group-title" data-i18n="Werkzeuge">Werkzeuge</div>
     <div class="tool-grid">
       <button class="tool-btn active" data-tool="select" title="Auswählen / Verschieben" data-i18n-title="Auswählen / Verschieben" aria-pressed="true">
@@ -124,12 +133,16 @@
     <input type="file" id="graphicInput" accept="image/*" hidden>
   </aside>
 
+  <div id="leftSidebarSplitter" class="layout-splitter layout-splitter-vertical" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Linke Seitenleiste in der Größe ändern" data-i18n-aria-label="Linke Seitenleiste in der Größe ändern"></div>
+
   <div class="canvas-wrap" id="canvasWrap">
     <canvas id="labelCanvas"></canvas>
     <div id="coordHud" class="coord-hud hidden" aria-hidden="true"></div>
   </div>
 
-  <aside class="inspector">
+  <div id="rightSidebarSplitter" class="layout-splitter layout-splitter-vertical" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Rechte Seitenleiste in der Größe ändern" data-i18n-aria-label="Rechte Seitenleiste in der Größe ändern"></div>
+
+  <aside class="inspector" id="inspector">
     <details class="inspector-library" id="libraryDetails" open>
       <summary><span data-i18n="Bibliothek">Bibliothek</span><span class="inspector-library-hint" id="libraryHint" data-i18n="Ordner, Dateien &amp; Beispiele">Ordner, Dateien &amp; Beispiele</span></summary>
       <div class="inspector-library-body">
@@ -155,7 +168,6 @@
       <button class="tab-btn active" data-tab="props" role="tab" aria-selected="true" data-i18n="Eigenschaften">Eigenschaften</button>
       <button class="tab-btn" data-tab="layers" role="tab" aria-selected="false" data-i18n="Ebenen">Ebenen</button>
       <button class="tab-btn" data-tab="vars" role="tab" aria-selected="false" data-i18n="Variablen">Variablen</button>
-      <button class="tab-btn" data-tab="zpl" role="tab" aria-selected="false" data-i18n="ZPL-Code">ZPL-Code</button>
       <button class="tab-btn" data-tab="merge" role="tab" aria-selected="false" data-i18n="Seriendruck">Seriendruck</button>
       <button class="tab-btn" data-tab="history" role="tab" aria-selected="false" data-i18n="Verlauf">Verlauf</button>
     </div>
@@ -196,26 +208,6 @@
         <div class="field-row"><label for="varRenameTo" data-i18n="Zu">Zu</label><input type="text" id="varRenameTo" placeholder="NEUERNAME"></div>
       </div>
       <div class="btn-row"><button id="btnVarRename" data-i18n="Umbenennen">Umbenennen</button></div>
-    </div>
-
-    <div class="tab-panel" id="tab-zpl" role="tabpanel">
-      <p class="hint" data-i18n="Live erzeugter ZPL-Code. Du kannst ihn hier bearbeiten und auf „Übernehmen“ klicken, um das Label neu zu laden – praktisch für ZPL-Befehle, die der visuelle Editor nicht abbildet.">Live erzeugter ZPL-Code. Du kannst ihn hier bearbeiten und auf &bdquo;Übernehmen&ldquo; klicken, um das Label neu zu laden &ndash; praktisch für ZPL-Befehle, die der visuelle Editor nicht abbildet.</p>
-      <p class="hint hidden" id="zplScopeHint"></p>
-      <div class="btn-row zpl-view-toggle">
-        <button id="btnZplViewCode" class="zpl-view-btn active" aria-pressed="true" data-i18n="Code">Code</button>
-        <button id="btnZplViewExplain" class="zpl-view-btn" aria-pressed="false" data-i18n="Erklärte Ansicht – ZPL lernen">Erklärte Ansicht &ndash; ZPL lernen</button>
-      </div>
-      <div id="zplCodeWrap" class="zpl-code-wrap">
-        <div id="zplLineHighlightBar" class="zpl-line-highlight-bar hidden" aria-hidden="true"></div>
-        <textarea id="zplSource" spellcheck="false"></textarea>
-      </div>
-      <div id="zplExplain" class="zpl-explain hidden">
-        <pre id="zplExplainCode" class="zpl-explain-code"></pre>
-        <div class="section-title" data-i18n="Befehle in diesem Label">Befehle in diesem Label</div>
-        <p class="hint" data-i18n="Jeder in diesem Etikett verwendete ZPL-Befehl, kurz erklärt. Im Code oben zeigt der Mauszeiger über einem hervorgehobenen Befehl dieselbe Erklärung als Tooltip.">Jeder in diesem Etikett verwendete ZPL-Befehl, kurz erklärt. Im Code oben zeigt der Mauszeiger über einem hervorgehobenen Befehl dieselbe Erklärung als Tooltip.</p>
-        <ul id="zplExplainLegend" class="zpl-explain-legend"></ul>
-      </div>
-      <button id="btnApplyZpl" data-i18n="Übernehmen">Übernehmen</button>
     </div>
 
     <div class="tab-panel" id="tab-merge" role="tabpanel">
@@ -277,6 +269,39 @@
   </aside>
 </div>
 
+<section id="bottomConsole" class="bottom-console is-collapsed" aria-label="ZPL-Konsole" data-i18n-aria-label="ZPL-Konsole">
+  <div id="consoleSplitter" class="layout-splitter layout-splitter-horizontal" role="separator" tabindex="0" aria-orientation="horizontal" aria-label="Konsole in der Größe ändern" data-i18n-aria-label="Konsole in der Größe ändern"></div>
+  <div class="console-header">
+    <button id="btnConsoleToggle" class="console-title" aria-expanded="false" aria-controls="consoleBody">
+      <span class="console-chevron" aria-hidden="true"></span>
+      <span data-i18n="ZPL-Konsole">ZPL-Konsole</span>
+      <span class="console-shortcut" aria-hidden="true">⌘/Ctrl + `</span>
+    </button>
+    <button id="btnConsoleClose" class="console-close" title="Konsole schließen" aria-label="Konsole schließen" data-i18n-title="Konsole schließen" data-i18n-aria-label="Konsole schließen">&times;</button>
+  </div>
+  <div id="consoleBody" class="console-body" aria-hidden="true">
+    <div class="console-toolbar">
+      <div class="zpl-view-toggle">
+        <button id="btnZplViewCode" class="zpl-view-btn active" aria-pressed="true" data-i18n="Code">Code</button>
+        <button id="btnZplViewExplain" class="zpl-view-btn" aria-pressed="false" data-i18n="Erklärte Ansicht – ZPL lernen">Erklärte Ansicht &ndash; ZPL lernen</button>
+      </div>
+      <p class="hint console-help" data-i18n="Live erzeugter ZPL-Code. Du kannst ihn hier bearbeiten und auf „Übernehmen“ klicken, um das Label neu zu laden – praktisch für ZPL-Befehle, die der visuelle Editor nicht abbildet.">Live erzeugter ZPL-Code. Du kannst ihn hier bearbeiten und auf &bdquo;Übernehmen&ldquo; klicken, um das Label neu zu laden.</p>
+      <p class="hint hidden" id="zplScopeHint"></p>
+      <button id="btnApplyZpl" class="primary" data-i18n="Übernehmen">Übernehmen</button>
+    </div>
+    <div id="zplCodeWrap" class="zpl-code-wrap">
+      <div id="zplLineHighlightBar" class="zpl-line-highlight-bar hidden" aria-hidden="true"></div>
+      <textarea id="zplSource" spellcheck="false" aria-label="ZPL-Code" data-i18n-aria-label="ZPL-Code"></textarea>
+    </div>
+    <div id="zplExplain" class="zpl-explain hidden">
+      <pre id="zplExplainCode" class="zpl-explain-code"></pre>
+      <div class="section-title" data-i18n="Befehle in diesem Label">Befehle in diesem Label</div>
+      <p class="hint" data-i18n="Jeder in diesem Etikett verwendete ZPL-Befehl, kurz erklärt. Im Code oben zeigt der Mauszeiger über einem hervorgehobenen Befehl dieselbe Erklärung als Tooltip.">Jeder in diesem Etikett verwendete ZPL-Befehl, kurz erklärt. Im Code oben zeigt der Mauszeiger über einem hervorgehobenen Befehl dieselbe Erklärung als Tooltip.</p>
+      <ul id="zplExplainLegend" class="zpl-explain-legend"></ul>
+    </div>
+  </div>
+</section>
+
 <div id="modalOverlay" class="modal-overlay hidden">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
     <div class="modal-header">
@@ -298,6 +323,7 @@
 <script src="../zplkit/qrcode.js"></script>
 <script src="../zplkit/zpl-model.js"></script>
 <script src="../zplkit/zpl-dpi.js"></script>
+<script src="../zplkit/editor-metadata.js"></script>
 <script src="../zplkit/zpl-parser.js"></script>
 <script src="../zplkit/zpl-generator.js"></script>
 <script src="../zplkit/zpl-diff.js"></script>

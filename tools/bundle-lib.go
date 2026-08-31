@@ -46,6 +46,7 @@ var (
 	coreModules = []string{
 		"zplkit/zpl-model.js",
 		"zplkit/zpl-dpi.js", // resolution math + label DPI conversion (pure, no DOM)
+		"zplkit/editor-metadata.js", // printer-safe ^FX sidecar for editor-only state
 		"zplkit/zpl-parser.js",
 		"zplkit/zpl-generator.js",
 		"zplkit/barcodes.js",
