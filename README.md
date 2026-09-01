@@ -44,6 +44,11 @@ Zustand bekommen keinen Metadatenblock. Eine genaue Formatspezifikation,
 Fehlerregeln und das Abschalten beim Generieren stehen in
 [`docs/editor-metadata.md`](docs/editor-metadata.md).
 
+„Herunterladen“ erzeugt die weiterhin vollständig bearbeitbare Datei.
+„Druck-ZPL“ erzeugt daneben eine bereinigte `*.print.zpl`-Datei ohne
+Editor-Sidecar; sie enthält weiterhin alle sichtbaren druckbaren Elemente,
+aber bewusst keine ausgeblendeten Entwürfe.
+
 ## Dateien mit mehreren Etiketten
 
 Eine `.zpl`-Datei ist nicht zwangsläufig ein Etikett – ein Druck-Spool enthält

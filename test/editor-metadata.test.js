@@ -43,6 +43,7 @@ test('round-trips guides and layer state through ^FX comments', function () {
   assert.equal(parsed.elements[1].hidden, true);
   assert.deepEqual(Array.from(parsed.editorGuides.vertical), [100, 250]);
   assert.equal(parsed.editorGuides.visible, false);
+  assert.equal(parsed.editorMetadataStatus.state, 'valid');
   assert.equal(c.ZPLGenerator.generateZPL(parsed), zpl);
 });
 
@@ -69,8 +70,23 @@ test('ignores damaged metadata without losing the comment or printable label', f
   const parsed = c.ZPLParser.parseZPL(damaged);
   assert.equal(parsed.elements.length, 1);
   assert.equal(parsed.elements[0].name, undefined);
+  assert.equal(parsed.editorMetadataStatus.state, 'invalid');
   assert.ok(parsed.rawTail.some(function (entry) { return entry.raw.indexOf('^FXZPLKIT_META:') === 0; }));
   assert.match(c.ZPLGenerator.generateZPL(parsed), /\^FXZPLKIT_META:/);
+  assert.doesNotMatch(c.ZPLGenerator.generateZPL(parsed, { editorMetadata: false }), /ZPLKIT_META/);
+});
+
+test('can generate a clean multi-label print document without editor metadata', function () {
+  const c = load();
+  const a = c.ZPLModel.defaultLabel();
+  const b = c.ZPLModel.defaultLabel();
+  const first = c.ZPLModel.makeText(); first.name = 'Layer A'; a.elements = [first];
+  const second = c.ZPLModel.makeText(); second.locked = true; b.elements = [second];
+  const doc = { labels: [a, b], storedGraphics: {}, passthrough: [] };
+  assert.equal((c.ZPLGenerator.generateDocument(doc).match(/ZPLKIT_META/g) || []).length, 2);
+  const clean = c.ZPLGenerator.generateDocument(doc, { editorMetadata: false });
+  assert.doesNotMatch(clean, /ZPLKIT_META/);
+  assert.equal((clean.match(/\^XA/g) || []).length, 2);
 });
 
 test('does not add metadata to ordinary labels and preserves foreign comments', function () {

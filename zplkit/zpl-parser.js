@@ -583,8 +583,10 @@
       const decoded = EditorMetadata.decode(editorMetadataChunks);
       if (decoded && EditorMetadata.apply(label, decoded)) {
         label.rawTail = label.rawTail.filter(function (entry) { return !entry._zplkitMeta; });
+        label.editorMetadataStatus = { state: 'valid', version: decoded.version, chunks: editorMetadataChunks.length };
       } else {
         editorMetadataRawEntries.forEach(function (entry) { delete entry._zplkitMeta; });
+        label.editorMetadataStatus = { state: 'invalid', chunks: editorMetadataChunks.length };
       }
     }
     label.byState = currentBY;

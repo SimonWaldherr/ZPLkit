@@ -875,8 +875,10 @@
   // The ZPL-Code tab deliberately shows only the ACTIVE frame (see its own
   // hint), because per-element line highlighting has no meaning across a
   // document.
-  function documentText() {
-    return window.ZPLGenerator.generateDocument(state.doc, { keepPreamble: state.keepPreamble !== false });
+  function documentText(options) {
+    return window.ZPLGenerator.generateDocument(state.doc, Object.assign({
+      keepPreamble: state.keepPreamble !== false,
+    }, options || {}));
   }
 
   function updateLabelNav() {
@@ -4658,6 +4660,17 @@
     if (adjusted !== name) showToast(t('dpi.download-renamed', { name: adjusted, dpi: currentDpi() }));
   });
 
+  $('btnDownloadPrintZpl').addEventListener('click', function () {
+    const text = documentText({ editorMetadata: false });
+    const original = DPI.renameForDpi(state.currentFileName || 'label.zpl', currentDpi());
+    const name = /\.[^.]+$/.test(original) ? original.replace(/(\.[^.]+)$/, '.print$1') : original + '.print.zpl';
+    downloadBlob(new Blob([text], { type: 'text/plain' }), name);
+    // This is a derived artifact, not the editable source file. Deliberately
+    // keep the document's dirty state so a print export cannot masquerade as
+    // saving layers, guides or hidden drafts.
+    showToast(t('metadata.print-exported', { name: name }));
+  });
+
   function downloadBlob(blob, filename) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -5823,7 +5836,10 @@
       issues.push({ severity: 'info', message: variables.length + ' Platzhalter bleiben für Seriendruck oder spätere Ersetzung erhalten: ' + variables.map(function (name) { return '$' + name + '$'; }).join(', ') });
     }
     const hiddenCount = label.elements.filter(function (el) { return el && el.hidden; }).length;
-    if (hiddenCount) issues.push({ severity: 'info', message: hiddenCount + ' ausgeblendete Element(e) werden nicht exportiert.' });
+    if (hiddenCount) issues.push({ severity: 'info', message: hiddenCount + ' ausgeblendete Element(e) werden nicht gedruckt, bleiben aber in der bearbeitbaren ZPL-Datei erhalten.' });
+    if (label.editorMetadataStatus && label.editorMetadataStatus.state === 'invalid') {
+      issues.push({ severity: 'warning', message: 'Editor-Metadaten waren unvollständig oder beschädigt. Das druckbare ZPL wurde geladen; Ebeneninformationen konnten nicht wiederhergestellt werden.' });
+    }
     return issues;
   }
 

@@ -66,7 +66,13 @@ wieder als `Uint8Array` aufgebaut.
   und ausgeblendeten Objekte.
 - Mit `ZPLGenerator.generateZPL(label, { editorMetadata: false })` kann ein
   bewusst bereinigtes Druck-ZPL ohne Editor-Sidecar erzeugt werden.
+- Für Dokumente mit mehreren Labels gilt entsprechend
+  `ZPLGenerator.generateDocument(doc, { editorMetadata: false })`.
+
+ZPL-Studio bietet dafür neben „Herunterladen“ die Aktion „Druck-ZPL“ an. Sie
+erzeugt eine separate `*.print.zpl`-Datei, markiert die bearbeitbare Quelle
+aber nicht als gespeichert: Ein bereinigter Druckexport enthält schließlich
+keine ausgeblendeten Entwürfe oder sonstigen Editorzustände mehr.
 
 `^FX` ist Zebras offizieller ZPL-Kommentarbefehl; `^FS` beendet das Feld. Siehe
 [Zebra ZPL Programming Guide: `^FX` example](https://docs.zebra.com/us/en/printers/software/zpl-pg/zbi-commands/file-system/runtime-access.html).
-

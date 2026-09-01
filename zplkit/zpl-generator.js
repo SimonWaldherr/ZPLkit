@@ -281,7 +281,12 @@
     // encountered during parsing, so they can be re-interleaved at that same
     // relative position instead of being dumped as one block before every
     // element (which would silently reorder commands relative to the source).
-    const rawTail = label.rawTail || [];
+    const rawTail = (label.rawTail || []).filter(function (entry) {
+      // Invalid/incomplete sidecars are deliberately retained by the parser
+      // for lossless normal saves. A caller explicitly requesting clean print
+      // ZPL expects those remnants to be removed as well as valid metadata.
+      return opts.editorMetadata !== false || String(entry.raw || '').indexOf('^FXZPLKIT_META:') !== 0;
+    });
     let rawIdx = 0;
     // A raw/passthrough chunk's captured text may or may not already end in
     // its own trailing newline, depending on whether the tokenizer's chunk
@@ -386,7 +391,7 @@
       rawTail: [],
       storedGraphics: storedGraphics,
     };
-    const header = generateZPL(storeCarrier, { keepPreamble: keepPreamble });
+    const header = generateZPL(storeCarrier, { keepPreamble: keepPreamble, editorMetadata: false });
     // Everything before the carrier's own ^XA is preamble + ~DG downloads;
     // everything from the trailing ^XA^ID... on is the cleanup tail.
     const frameStart = header.indexOf('^XA\n');
@@ -402,7 +407,11 @@
     }
     emitPassthroughAfter(-1);
     labels.forEach(function (label, i) {
-      out += generateZPL(label, { keepPreamble: false, omitStoredGraphics: true });
+      out += generateZPL(label, {
+        keepPreamble: false,
+        omitStoredGraphics: true,
+        editorMetadata: opts.editorMetadata !== false,
+      });
       emitPassthroughAfter(i);
     });
     return out + epilogue;
