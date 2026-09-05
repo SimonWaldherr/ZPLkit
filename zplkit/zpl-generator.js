@@ -263,7 +263,13 @@
     out += '^XA\n';
 
     const s = label.settings;
-    out += '^MM' + (s.mediaTracking || 'T') + '\n';
+    // Empty mode means the user chose to leave the printer setting unchanged.
+    // Old models without the property keep the historical Tear-off default.
+    if (s.mediaTracking !== null && s.mediaTracking !== '') {
+      out += '^MM' + (s.mediaTracking || 'T') + (s.mediaPrepeel != null ? ',' + s.mediaPrepeel : '') + '\n';
+    }
+    if (s.printMethod) out += '^MT' + s.printMethod + '\n';
+    if (s.mediaSensing) out += '^MN' + s.mediaSensing + (s.blackMarkOffset != null ? ',' + s.blackMarkOffset : '') + '\n';
     out += '^PW' + s.widthDots + '\n';
     out += '^LL' + s.heightDots + '\n';
     if (s.homeX || s.homeY) out += '^LH' + s.homeX + ',' + s.homeY + '\n';
@@ -271,6 +277,7 @@
     out += (s.printMode === 'I' ? '^POI' : '^PON') + '\n';
     out += '^CI' + (s.encoding || '0') + '\n';
     if (s.darkness != null && s.darkness !== '') out += '~SD' + s.darkness + '\n';
+    if (s.darknessOffset != null && s.darknessOffset !== '') out += '^MD' + s.darknessOffset + '\n';
     if (s.printSpeed) out += '^PR' + s.printSpeed + '\n';
     if (s.note) out += '^FXNOTIZ:' + s.note.replace(/[\^~]/g, '') + '^FS\n';
     if (EditorMetadata && opts.editorMetadata !== false) {

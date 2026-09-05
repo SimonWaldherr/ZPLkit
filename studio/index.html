@@ -5,19 +5,21 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ZPL-Studio</title>
 <link rel="icon" type="image/svg+xml" href="../favicon.svg">
-<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/style.css?v=sharing-1">
 </head>
 <body>
 <header class="topbar">
+  <div class="topbar-row topbar-primary">
   <div class="brand">
     <svg class="brand-mark" viewBox="0 0 64 64" aria-hidden="true"><path d="M16,14 H47 A3,3 0 0 1 50,17 V47 A3,3 0 0 1 47,50 H16 L6,32 Z" fill="#FFFFFF"/><circle cx="23" cy="32" r="3.2" fill="#051E50"/><rect x="29" y="21" width="2.4" height="22" fill="#FFD602"/><rect x="34" y="21" width="3.4" height="22" fill="#FFD602"/><rect x="40" y="21" width="2" height="22" fill="#FFD602"/><rect x="44" y="21" width="4" height="22" fill="#FFD602"/></svg>
     ZPL-Studio
   </div>
-
   <div class="tb-group">
     <button id="btnNew" title="Neues leeres Label" data-i18n="Neu" data-i18n-title="Neues leeres Label">Neu</button>
     <button id="btnSave" title="Zurück in die geöffnete Datei speichern" data-i18n="Speichern" data-i18n-title="Zurück in die geöffnete Datei speichern" disabled>Speichern</button>
     <button id="btnDownload" title="Als .zpl-Datei herunterladen" data-i18n="Herunterladen" data-i18n-title="Als .zpl-Datei herunterladen">Herunterladen</button>
+    <button id="btnShare" data-i18n="share.title">Teilen</button>
+    <details class="toolbar-menu"><summary data-i18n="Export & Druck">Export &amp; Druck</summary><div class="toolbar-menu-content">
     <button id="btnDownloadPrintZpl" title="Druck-ZPL ohne Editor-Metadaten herunterladen" data-i18n="Druck-ZPL" data-i18n-title="Druck-ZPL ohne Editor-Metadaten herunterladen">Druck-ZPL</button>
     <select id="exportFormatSelect" title="Label als Bild oder PDF exportieren" data-i18n-title="Label als Bild oder PDF exportieren">
       <option value="" selected disabled data-i18n="Exportieren als…">Exportieren als&hellip;</option>
@@ -31,11 +33,19 @@
          is detected (see BackendClient.probe() in ../zplkit/backend-client.js) -
          hidden by default so a deployment without one sees no change. -->
     <button id="btnPrintBackend" class="hidden" title="Über den konfigurierten Backend-Dienst drucken" data-i18n="Drucken…" data-i18n-title="Über den konfigurierten Backend-Dienst drucken">Drucken&hellip;</button>
+      </div></details>
   </div>
-
-  <!-- Multi-label documents: a .zpl file often holds many ^XA…^XZ frames.
-       Collapses to just the "+" button when the file has a single label, so
-       the ordinary case gains no clutter. -->
+  <div class="tb-group">
+    <button id="btnUndo" title="Rückgängig (Strg+Z)" aria-label="Rückgängig" data-i18n-title="Rückgängig (Strg+Z)" data-i18n-aria-label="Rückgängig">&#8634;</button>
+    <button id="btnRedo" title="Wiederholen (Strg+Y)" aria-label="Wiederholen" data-i18n-title="Wiederholen (Strg+Y)" data-i18n-aria-label="Wiederholen">&#8635;</button>
+  </div>
+    <span id="autosaveStatus" class="autosave-status" role="status" aria-live="polite"></span>
+    <div class="panel-toggles" role="group" aria-label="Seitenleisten">
+      <button id="btnToggleTools" aria-controls="toolbox" aria-expanded="true" data-i18n="Werkzeuge">Werkzeuge</button>
+      <button id="btnToggleInspector" aria-controls="inspector" aria-expanded="true" data-i18n="Eigenschaften">Eigenschaften</button>
+    </div>
+  </div>
+  <div class="topbar-row topbar-secondary">
   <div class="tb-group label-nav single" id="labelNav">
     <button id="btnLabelPrev" title="Vorheriges Etikett" aria-label="Vorheriges Etikett" data-i18n-title="Vorheriges Etikett" data-i18n-aria-label="Vorheriges Etikett">&#9664;</button>
     <span id="labelNavPos" class="label-nav-pos">1/1</span>
@@ -47,19 +57,12 @@
     <button id="btnLabelMoveDown" title="Aktuelles Etikett nach hinten schieben" aria-label="Etikett nach hinten" data-i18n-title="Aktuelles Etikett nach hinten schieben" data-i18n-aria-label="Etikett nach hinten">&#8677;</button>
     <button id="btnLabelDelete" class="danger" title="Aktuelles Etikett löschen" data-i18n-title="Aktuelles Etikett löschen">&times;</button>
   </div>
-
-  <div class="tb-group">
-    <button id="btnUndo" title="Rückgängig (Strg+Z)" aria-label="Rückgängig" data-i18n-title="Rückgängig (Strg+Z)" data-i18n-aria-label="Rückgängig">&#8634;</button>
-    <button id="btnRedo" title="Wiederholen (Strg+Y)" aria-label="Wiederholen" data-i18n-title="Wiederholen (Strg+Y)" data-i18n-aria-label="Wiederholen">&#8635;</button>
-  </div>
-
   <div class="tb-group">
     <button id="btnZoomOut" title="Verkleinern" aria-label="Verkleinern" data-i18n-title="Verkleinern" data-i18n-aria-label="Verkleinern">&minus;</button>
     <span id="zoomLabel" class="zoom-label">100%</span>
     <button id="btnZoomIn" title="Vergrößern" aria-label="Vergrößern" data-i18n-title="Vergrößern" data-i18n-aria-label="Vergrößern">+</button>
     <button id="btnZoomFit" title="Einpassen" data-i18n="Einpassen" data-i18n-title="Einpassen">Einpassen</button>
   </div>
-
   <div class="tb-group">
     <label class="chk"><input type="checkbox" id="chkGrid"> <span data-i18n="Gitter">Gitter</span></label>
     <input type="number" id="gridSize" value="10" min="1" max="500" step="any" title="Gitterweite in Dots" data-i18n-title="Gitterweite in Dots" class="grid-size-input">
@@ -69,8 +72,15 @@
     </select>
     <button id="btnGuides" title="Hilfslinien verwalten" data-i18n="Hilfslinien…" data-i18n-title="Hilfslinien verwalten">Hilfslinien…</button>
   </div>
+    <details class="toolbar-menu toolbar-extras"><summary data-i18n="Weitere Funktionen">Weitere Funktionen</summary><div class="toolbar-menu-content">
 
-  <div class="tb-group">
+
+    <label class="chk"><input type="checkbox" id="chkSampleData"> <span data-i18n="Beispieldaten anzeigen">Beispieldaten anzeigen</span></label>
+    <button id="btnPreflight" title="Label vor Export und Druck prüfen" data-i18n="Preflight…" data-i18n-title="Label vor Export und Druck prüfen">Preflight…</button>
+    <button id="btnCompareLabels" title="Aktuelles Label mit einem anderen vergleichen (aus der Bibliothek oder per Upload)" data-i18n="Vergleichen…" data-i18n-title="Aktuelles Label mit einem anderen vergleichen (aus der Bibliothek oder per Upload)">Vergleichen…</button>
+    <button id="btnLabelary" title="Exakte Druckvorschau über den öffentlichen Labelary-Dienst abrufen (sendet den ZPL-Code an labelary.com)" data-i18n="Exakte Vorschau…" data-i18n-title="Exakte Druckvorschau über den öffentlichen Labelary-Dienst abrufen (sendet den ZPL-Code an labelary.com)">Exakte Vorschau…</button>
+    <button id="btnShortcuts" title="Tastaturkürzel anzeigen" data-i18n-title="Tastaturkürzel anzeigen">?</button>
+
     <select id="themeSelect" title="Darstellung" aria-label="Darstellung" data-i18n-title="Darstellung" data-i18n-aria-label="Darstellung">
       <option value="system" data-i18n="System">System</option>
       <option value="light" data-i18n="Hell">Hell</option>
@@ -82,20 +92,13 @@
       <option value="en">EN</option>
       <option value="fr">FR</option>
     </select>
-  </div>
 
-  <div class="tb-group tb-right">
-    <span id="autosaveStatus" class="autosave-status" role="status" aria-live="polite"></span>
-    <label class="chk"><input type="checkbox" id="chkSampleData"> <span data-i18n="Beispieldaten anzeigen">Beispieldaten anzeigen</span></label>
-    <button id="btnPreflight" title="Label vor Export und Druck prüfen" data-i18n="Preflight…" data-i18n-title="Label vor Export und Druck prüfen">Preflight…</button>
-    <button id="btnCompareLabels" title="Aktuelles Label mit einem anderen vergleichen (aus der Bibliothek oder per Upload)" data-i18n="Vergleichen…" data-i18n-title="Aktuelles Label mit einem anderen vergleichen (aus der Bibliothek oder per Upload)">Vergleichen…</button>
-    <button id="btnLabelary" title="Exakte Druckvorschau über den öffentlichen Labelary-Dienst abrufen (sendet den ZPL-Code an labelary.com)" data-i18n="Exakte Vorschau…" data-i18n-title="Exakte Druckvorschau über den öffentlichen Labelary-Dienst abrufen (sendet den ZPL-Code an labelary.com)">Exakte Vorschau…</button>
-    <button id="btnShortcuts" title="Tastaturkürzel anzeigen" data-i18n-title="Tastaturkürzel anzeigen">?</button>
+    </div></details>
   </div>
 </header>
 
 <div class="main">
-  <aside class="toolbox" id="toolbox">
+  <aside class="toolbox" id="toolbox" aria-label="Werkzeuge">
     <div class="tool-group-title" data-i18n="Werkzeuge">Werkzeuge</div>
     <div class="tool-grid">
       <button class="tool-btn active" data-tool="select" title="Auswählen / Verschieben" data-i18n-title="Auswählen / Verschieben" aria-pressed="true">
@@ -165,7 +168,7 @@
       </div>
     </details>
 
-    <div class="tabs" role="tablist">
+    <div class="tabs" role="tablist" aria-label="Eigenschaften und Daten">
       <button class="tab-btn active" data-tab="props" role="tab" aria-selected="true" data-i18n="Eigenschaften">Eigenschaften</button>
       <button class="tab-btn" data-tab="layers" role="tab" aria-selected="false" data-i18n="Ebenen">Ebenen</button>
       <button class="tab-btn" data-tab="vars" role="tab" aria-selected="false" data-i18n="Variablen">Variablen</button>
@@ -218,7 +221,7 @@
       <div class="btn-row">
         <button id="btnMergeLoadData" data-i18n="CSV/XLSX-Datei wählen…">CSV/XLSX-Datei wählen…</button>
       </div>
-      <input type="file" id="mergeDataInput" accept=".csv,.txt,.xlsx" hidden>
+      <input type="file" id="mergeDataInput" accept=".csv,.tsv,.txt,.xlsx" hidden>
       <div id="mergeDataStatus" class="hint" aria-live="polite">Keine Datei geladen</div>
       <div id="mergeSheetPicker" class="field-row hidden">
         <label for="mergeSheetSelect" data-i18n="Tabellenblatt">Tabellenblatt</label>
@@ -278,18 +281,18 @@
       <span data-i18n="ZPL-Konsole">ZPL-Konsole</span>
       <span class="console-shortcut" aria-hidden="true">⌘/Ctrl + `</span>
     </button>
-    <button id="btnConsoleClose" class="console-close" title="Konsole schließen" aria-label="Konsole schließen" data-i18n-title="Konsole schließen" data-i18n-aria-label="Konsole schließen">&times;</button>
-  </div>
-  <div id="consoleBody" class="console-body" aria-hidden="true">
     <div class="console-toolbar">
       <div class="zpl-view-toggle">
         <button id="btnZplViewCode" class="zpl-view-btn active" aria-pressed="true" data-i18n="Code">Code</button>
-        <button id="btnZplViewExplain" class="zpl-view-btn" aria-pressed="false" data-i18n="Erklärte Ansicht – ZPL lernen">Erklärte Ansicht &ndash; ZPL lernen</button>
+        <button id="btnZplViewExplain" class="zpl-view-btn" aria-pressed="false" data-i18n="Erklärung">Erklärung</button>
       </div>
-      <p class="hint console-help" data-i18n="Live erzeugter ZPL-Code. Du kannst ihn hier bearbeiten und auf „Übernehmen“ klicken, um das Label neu zu laden – praktisch für ZPL-Befehle, die der visuelle Editor nicht abbildet.">Live erzeugter ZPL-Code. Du kannst ihn hier bearbeiten und auf &bdquo;Übernehmen&ldquo; klicken, um das Label neu zu laden.</p>
+      <details class="console-help"><summary data-i18n="Hinweise">Hinweise</summary><p data-i18n="console.help.short">Änderungen am Code mit „Übernehmen“ ins Etikett laden. Die Konsole bearbeitet das aktuelle Etikett.</p></details>
       <p class="hint hidden" id="zplScopeHint"></p>
       <button id="btnApplyZpl" class="primary" data-i18n="Übernehmen">Übernehmen</button>
     </div>
+    <button id="btnConsoleClose" class="console-close" title="Konsole schließen" aria-label="Konsole schließen" data-i18n-title="Konsole schließen" data-i18n-aria-label="Konsole schließen">&times;</button>
+  </div>
+  <div id="consoleBody" class="console-body" aria-hidden="true">
     <div id="zplCodeWrap" class="zpl-code-wrap">
       <div id="zplLineHighlightBar" class="zpl-line-highlight-bar hidden" aria-hidden="true"></div>
       <textarea id="zplSource" spellcheck="false" aria-label="ZPL-Code" data-i18n-aria-label="ZPL-Code"></textarea>
@@ -327,6 +330,7 @@
 <script src="../zplkit/editor-metadata.js"></script>
 <script src="../zplkit/zpl-parser.js"></script>
 <script src="../zplkit/zpl-generator.js"></script>
+<script src="../zplkit/zpl-sharing.js"></script>
 <script src="../zplkit/zpl-diff.js"></script>
 <script src="../zplkit/zpl-glossary.js"></script>
 <script src="../zplkit/csv-parser.js"></script>
@@ -335,8 +339,8 @@
 <script src="../zplkit/zpl-render.js"></script>
 <script src="../zplkit/pdf-writer.js"></script>
 <script src="../zplkit/gif-writer.js"></script>
-<script src="i18n.js"></script>
+<script src="i18n.js?v=sharing-1"></script>
 <script src="../zplkit/backend-client.js"></script>
-<script src="app.js"></script>
+<script src="app.js?v=sharing-1"></script>
 </body>
 </html>

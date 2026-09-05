@@ -1079,3 +1079,88 @@ body.layout-resizing.layout-resizing-vertical { cursor: row-resize; }
 :root[data-theme="contrast"] *,
 :root[data-theme="contrast"] *::before,
 :root[data-theme="contrast"] *::after { box-shadow: none !important; }
+
+/* Workspace chrome: two predictable command rows and independently hideable
+   sidebars. Native details menus keep every secondary action keyboard accessible. */
+[hidden] { display: none !important; }
+.topbar { display: block; padding: 0; position: relative; z-index: 20; }
+.topbar-row { display: flex; align-items: center; gap: 10px; padding: 7px 12px; min-width: 0; flex-wrap: wrap; }
+.topbar-primary { border-bottom: 1px solid rgba(255,255,255,.12); }
+.topbar-secondary { padding-block: 5px; background: var(--ui-navy-dark); }
+.topbar .tb-group { gap: 5px; flex-wrap: wrap; }
+.topbar .tb-group + .tb-group { padding-left: 10px; }
+.topbar .brand { font-size: 15px; margin: 0 5px 0 0; }
+.topbar .autosave-status { margin-left: auto; }
+.panel-toggles { display: flex; gap: 5px; }
+.panel-toggles button[aria-expanded="true"] { border-color: rgba(255,255,255,.5); }
+.topbar button, .topbar select, .toolbar-menu > summary { min-height: 32px; }
+.toolbar-menu { position: relative; }
+.toolbar-menu > summary { cursor: pointer; padding: 6px 10px; background: var(--ui-navy-secondary); font-size: 12px; white-space: nowrap; }
+.toolbar-menu > summary:focus-visible, .console-help > summary:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.toolbar-menu[open] > summary { background: var(--ui-navy-deep); }
+.toolbar-menu-content {
+  position: fixed; top: 48px; left: 8px; z-index: 30;
+  width: 260px; max-width: calc(100vw - 24px); max-height: 65vh; overflow-y: auto;
+  display: flex; flex-direction: column; align-items: stretch; gap: 7px;
+  padding: 12px; background: var(--ui-surface); color: var(--ui-text);
+  border: 1px solid var(--ui-border); box-shadow: 0 8px 24px #0004;
+}
+.toolbar-menu-content .chk { white-space: normal; }
+.toolbar-menu-content button, .toolbar-menu-content select { text-align: left; width: 100% !important; }
+.toolbar-extras { margin-left: auto; }
+.toolbar-extras .toolbar-menu-content { left: auto; right: 0; }
+.toolbox { padding: 8px 4px; scrollbar-width: thin; }
+.tool-group-title { font-size: 8px; letter-spacing: 0; text-align: center; margin-inline: 0; }
+.tool-btn { min-height: 44px; border-radius: 4px; }
+.tool-grid { gap: 4px; }
+.tool-btn span { font-size: 10px; overflow-wrap: anywhere; }
+.inspector-library { flex-shrink: 0; }
+.inspector-library-body { max-height: 25vh; overflow-y: auto; padding: 0 10px 8px; }
+.inspector-library-hint { display: none; }
+.tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.tab-btn { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; padding: 8px 5px; min-height: 34px; }
+.tab-btn:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: -3px; }
+.tab-panel { overscroll-behavior: contain; scrollbar-gutter: stable; }
+.console-header { min-height: 38px; flex-basis: auto; align-items: center; gap: 8px; padding-left: 4px; }
+.console-title { flex: 0 1 auto; min-height: 38px; padding: 0 8px; white-space: nowrap; }
+.console-toolbar { flex: 1 1 auto; gap: 8px; min-width: 0; }
+.console-toolbar .zpl-view-toggle { flex-shrink: 0; }
+.console-toolbar #btnApplyZpl { margin-left: auto; flex-shrink: 0; }
+.console-toolbar #zplScopeHint { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.console-close { align-self: stretch; min-height: 38px; }
+.console-body { grid-template-rows: minmax(0, 1fr); padding: 0 10px 10px; }
+.console-body .zpl-code-wrap, .console-body .zpl-explain { grid-row: 1; }
+.bottom-console.is-collapsed .console-toolbar { display: none; }
+.console-help { position: relative; overflow: visible; flex: 0 0 auto; font-size: 12px; }
+.console-help summary { cursor: pointer; padding: 7px; }
+.console-help p { position: absolute; z-index: 5; top: 100%; left: 0; width: 240px; white-space: normal; margin: 4px 0; padding: 10px; background: var(--ui-surface); border: 1px solid var(--ui-border); box-shadow: 0 4px 12px #0003; }
+@media (max-width: 1000px) {
+  .topbar .autosave-status { display: none; }
+  .panel-toggles { margin-left: auto; }
+  .console-shortcut { display: none; }
+}
+@media (max-width: 760px) {
+  .topbar-row { gap: 6px; padding: 5px 8px; }
+  .topbar .brand { font-size: 13px; }
+  .topbar button, .topbar select, .toolbar-menu > summary { padding-inline: 7px; }
+  .topbar-secondary .tb-group { border: 0; padding-left: 0; }
+  .main { position: relative; }
+  .inspector { position: absolute; right: 0; top: 0; bottom: 0; z-index: 10; width: min(340px, calc(100vw - 72px)); max-width: none; box-shadow: -8px 0 20px #0003; }
+  .console-title { font-size: 11px; }
+  .console-header { gap: 4px; }
+  .console-toolbar { gap: 4px; }
+  .console-toolbar button { padding-inline: 6px; }
+  .console-help { display: none; }
+  .console-toolbar #zplScopeHint { font-size: 10px; }
+}
+@media (max-width: 480px) {
+  .topbar .brand { width: 100%; }
+  .topbar .tb-group + .tb-group { border: 0; padding-left: 0; }
+  .panel-toggles { margin-left: 0; }
+  .toolbar-extras { margin-left: 0; }
+  .toolbar-extras .toolbar-menu-content { right: auto; left: 0; }
+  .console-header { flex-wrap: wrap; }
+  .console-title { flex: 1 1 auto; }
+  .console-toolbar { order: 3; flex-basis: 100%; padding: 0 6px 6px; }
+  .console-close { order: 2; }
+}

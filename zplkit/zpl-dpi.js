@@ -300,6 +300,12 @@
         change('label-shift', 'Label-Verschiebung (^LS)', String(settings.labelShiftY), String(ls));
         if (!dryRun) settings.labelShiftY = ls;
       }
+      if (settings.blackMarkOffset != null && settings.blackMarkOffset !== '' && Number(settings.blackMarkOffset) !== 0) {
+        const offset = scaleValue(Number(settings.blackMarkOffset), 'coord', factor).value;
+        change('black-mark-offset', 'Schwarzmarkenversatz (^MN)', String(settings.blackMarkOffset), String(offset));
+        warn('black-mark-range', 'Den umgerechneten Schwarzmarkenversatz mit dem zulässigen Bereich des Zieldruckers abgleichen; dieser ist modellabhängig.');
+        if (!dryRun) settings.blackMarkOffset = offset;
+      }
       if (!dryRun) { settings.widthDots = newWidth; settings.heightDots = newHeight; }
     }
 

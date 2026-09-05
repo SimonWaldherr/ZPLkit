@@ -28,9 +28,9 @@
   }
 
   // Scans a sample of CSV text and picks the delimiter for its header line
-  // by counting unquoted ',' vs ';' occurrences up to the first (unquoted)
-  // line break. Whichever is more frequent wins; a tie (including 0-vs-0,
-  // e.g. a single-column header) goes to comma. Counting only happens
+  // by counting unquoted comma, semicolon and tab occurrences up to the first (unquoted)
+  // line break. Tabs win only with a strict majority; otherwise semicolon
+  // wins over comma when more frequent, with comma as fallback. Counting happens
   // outside quoted fields so a quoted header like "Last, First" doesn't
   // skew the vote toward comma.
   //
@@ -41,8 +41,12 @@
   // detection logic before committing to a full parse.
   function detectDelimiter(sampleText) {
     var text = stripBom(String(sampleText == null ? '' : sampleText));
+    text = text.slice(findFirstContentIndex(text));
+    var directive = separatorDirective(text);
+    if (directive) return directive[1];
     var commaCount = 0;
     var semicolonCount = 0;
+    var tabCount = 0;
     var inQuotes = false;
 
     for (var i = 0; i < text.length; i++) {
@@ -67,10 +71,18 @@
         commaCount++;
       } else if (ch === ';') {
         semicolonCount++;
+      } else if (ch === '\t') {
+        tabCount++;
       }
     }
 
+    if (tabCount > commaCount && tabCount > semicolonCount) return '\t';
     return semicolonCount > commaCount ? ';' : ',';
+  }
+
+  // Excel's optional first-line separator hint is not a header record.
+  function separatorDirective(text) {
+    return /^sep=([^"\r\n])(?:\r\n|\n|\r|$)/i.exec(text);
   }
 
   // Finds the character index of the first non-blank line in `text`, so
@@ -154,10 +166,12 @@
       }
     }
 
+    if (inQuotes) throw new Error('CSVParser.parse: unterminated quoted field in record ' + (records.length + 1));
+
     // No trailing newline is required on the last line -- flush whatever
     // was accumulated, but only if there is anything to flush (avoids a
     // phantom empty record when `text` ended exactly on a line break).
-    if (field !== '' || row.length > 0) {
+    if (field !== '' || row.length > 0 || (len > 0 && text[len - 1] !== '\n' && text[len - 1] !== '\r')) {
       row.push(field);
       records.push(row);
     }
@@ -192,13 +206,30 @@
     // (also keeps delimiter auto-detection from looking at an empty line).
     var contentText = raw.slice(findFirstContentIndex(raw));
 
-    var delimiter = options.delimiter ? options.delimiter : detectDelimiter(contentText);
+    var directive = separatorDirective(contentText);
+    if (directive) {
+      contentText = contentText.slice(directive[0].length);
+      contentText = contentText.slice(findFirstContentIndex(contentText));
+    }
+    if (!contentText.trim()) throw new Error('CSVParser.parse: input is empty');
+    var delimiter = options.delimiter !== undefined ? options.delimiter :
+      (directive ? directive[1] : detectDelimiter(contentText));
+    if (typeof delimiter !== 'string' || delimiter.length !== 1 || /["\r\n]/.test(delimiter)) {
+      throw new Error('CSVParser.parse: invalid delimiter');
+    }
 
     var records = tokenizeRecords(contentText, delimiter);
     // records[0] is guaranteed to exist: contentText starts at the first
     // line with real (non-whitespace) content, so it always tokenizes to
     // at least one record.
     var headerFields = records[0].map(function (h) { return h.trim(); });
+
+    var seenHeaders = Object.create(null);
+    headerFields.forEach(function (header, index) {
+      if (!header) throw new Error('CSVParser.parse: empty header in column ' + (index + 1));
+      if (seenHeaders[header]) throw new Error('CSVParser.parse: duplicate header: ' + header);
+      seenHeaders[header] = true;
+    });
 
     var rows = [];
     for (var r = 1; r < records.length; r++) {
@@ -210,7 +241,11 @@
         // Fewer fields than headers -> missing trailing values default to
         // ''. Extra fields beyond the header count are silently dropped
         // (ragged real-world exports shouldn't blow up the whole import).
-        obj[headerFields[c]] = c < fields.length ? fields[c] : '';
+        // Keep even names such as __proto__ as ordinary, own data columns.
+        Object.defineProperty(obj, headerFields[c], {
+          value: c < fields.length ? fields[c] : '',
+          enumerable: true, writable: true, configurable: true
+        });
       }
       rows.push(obj);
     }

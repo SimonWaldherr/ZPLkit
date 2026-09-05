@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ZPL in Studio öffnen – Einbindungsbeispiel</title>
+  <style>
+    body { max-width: 760px; margin: 40px auto; padding: 0 20px; font: 16px/1.5 system-ui,sans-serif; color: #18243b; }
+    label { display:block; margin-top:16px; font-weight:600; }
+    input, textarea { box-sizing:border-box; width:100%; padding:10px; font:inherit; border:1px solid #8993a5; border-radius:4px; }
+    textarea { font-family:monospace; }
+    button, #openLink { display:inline-block; margin-top:16px; padding:10px 16px; background:#051e50; color:white; border:0; border-radius:4px; font:inherit; cursor:pointer; }
+    [hidden] { display:none !important; }
+    #status { min-height:24px; }
+    .hint { font-size:14px; color:#566176; }
+  </style>
+</head>
+<body>
+  <h1>In ZPLkit-Studio öffnen</h1>
+  <p>Beispiel für die Integration in eine andere Anwendung. ZPL und DPI werden direkt im Link gespeichert.</p>
+  <form id="linkForm">
+    <label for="studioUrl">Studio-Adresse</label><input id="studioUrl" type="url" required>
+    <label for="zpl">ZPL</label><textarea id="zpl" rows="7" required>^XA
+^PW600^LL400^CI28
+^FO30,30^A0N,35,35^FDGrüße aus einer anderen Anwendung!^FS
+^PQ1
+^XZ</textarea>
+    <label for="dpi">DPI je Etikett (durch Kommas getrennt)</label><input id="dpi" value="300" required>
+    <button type="submit">Link erzeugen</button>
+  </form>
+  <p id="status" role="status"></p>
+  <a id="openLink" target="_blank" rel="noopener noreferrer" hidden>In ZPLkit-Studio öffnen ↗</a>
+  <label for="result">Erzeugter Link</label><textarea id="result" rows="4" readonly></textarea>
+  <p class="hint">Kein Upload und keine Verschlüsselung. Jeder mit dem Link kann den Inhalt lesen. Empfänger benötigen Zugriff auf die Studio-Adresse.</p>
+  <script src="../zpl-sharing.js"></script>
+  <script>
+    const studioUrl = document.getElementById('studioUrl');
+    const result = document.getElementById('result');
+    const link = document.getElementById('openLink');
+    const status = document.getElementById('status');
+    studioUrl.value = new URL('../../studio/', location.href).href;
+    let generation = 0;
+    document.getElementById('linkForm').addEventListener('submit', async function (event) {
+      event.preventDefault();
+      const request = ++generation;
+      result.value = ''; link.hidden = true; status.textContent = 'Link wird erzeugt…';
+      try {
+        const url = await ZPLSharing.createUrl(studioUrl.value, {
+          zpl: document.getElementById('zpl').value,
+          dpi: document.getElementById('dpi').value.split(',').map(value => Number(value.trim())),
+          name: 'Integration.zpl', activeLabel: 0
+        });
+        if (request !== generation) return;
+        result.value = url; link.href = url; link.hidden = false;
+        status.textContent = url.length > ZPLSharing.limits.warningUrlLength
+          ? 'Langer Link: Bei Problemen eine ZPL-Datei weitergeben.' : 'Link bereit. Öffnet Studio mit dem Etikett.';
+      } catch (error) {
+        if (request === generation) status.textContent = 'Kein Link erzeugt: ' + error.message;
+      }
+    });
+  </script>
+</body>
+</html>

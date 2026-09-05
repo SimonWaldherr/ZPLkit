@@ -343,8 +343,21 @@
       name: '^MM – Druckmodus', desc: 'Was der Drucker nach dem Druck tut: abreißen, schneiden, abziehen, zurückspulen oder spenden.',
       fullName: 'Print Mode', germanName: 'Druckmodus',
       params: [
-        { name: 'Modus', desc: 'T = Abreißen (Tear-off), P = Abziehen (Peel-off), R = Zurückspulen (Rewind), A = Spenden/Applikator, C = Schneiden (Cutter), D = Verzögertes Schneiden.', default: 'T', range: 'T, P, R, A, C, D' },
-        { name: 'Vorschub', desc: 'Ob beim Moduswechsel ein Etikett in Ausgabeposition vorgeschoben wird, falls dort noch keines liegt.', default: 'Y', range: 'Y, N' },
+        { name: 'Modus', desc: 'T = Abreißen, P = Peel-off mit Spendekit und Entnahmesensor, R = Aufwickeln, A = Applikator, C = Cutter, D = verzögerter Cutter (~JK separat senden), F = RFID, K = Kiosk. L/U sind reservierte modellabhängige Werte.', default: 'modellabhängig', range: 'T, P, R, A, C, D, F, K, L, U' },
+        { name: 'Prepeel', desc: 'Nächstes Etikett kurz vom Träger lösen, dann zurückfahren und drucken. Nur für kompatible Peel-off-Drucker, nicht für Link-OS.', default: 'N', range: 'Y, N' },
+      ],
+    },
+    MT: {
+      name: '^MT – Druckverfahren', desc: 'Wählt Thermodirekt ohne Farbband oder Thermotransfer mit Farbband.',
+      fullName: 'Media Type', germanName: 'Druckverfahren',
+      params: [{ name: 'Verfahren', desc: 'D = wärmeempfindliches Thermodirektmaterial, T = Thermotransfermaterial mit Farbband.', default: 'unverändert', range: 'D, T' }],
+    },
+    MN: {
+      name: '^MN – Medienerkennung', desc: 'Bestimmt, wie Etikettengrenzen erkannt werden; löst keine Kalibrierung aus.',
+      fullName: 'Media Tracking', germanName: 'Medienerkennung',
+      params: [
+        { name: 'Erkennung', desc: 'N = Endlos, Y/W = Lücke/Steg, M = Schwarzmarke, A = automatisch bei Kalibrierung (modellabhängig), V = Endlos mit variabler Länge (KR403).', default: 'unverändert', range: 'N, Y, W, M, A, V' },
+        { name: 'Markenversatz', desc: 'Schwarzmarkenposition relativ zur Trennstelle, in Dots. Nur bei M wirksam; zulässiger Bereich hängt vom Druckermodell ab.', default: '0', range: 'meist −120 bis 283; Thermodirekt-only −80 bis 283; 600 dpi −240 bis 566; KR403 −75 bis 283' },
       ],
     },
     PO: {
@@ -373,10 +386,16 @@
         { name: 'Menge', desc: 'Gesamtzahl der zu druckenden Etiketten.', default: '1', range: '1–99999999' },
         { name: 'Pause nach', desc: 'Nach wie vielen Etiketten der Drucker automatisch anhält (0 = nie).', default: '0', range: '0–99999999' },
         { name: 'Wiederholungen', desc: 'Anzahl Kopien je Seriennummer, bevor bei serialisierten Feldern weitergezählt wird.', default: '0', range: '0–99999999' },
-        { name: 'Pause überschreiben', desc: 'Y = verwendet die Pause-Anzahl dieses Befehls statt einer am Drucker eingestellten, N = übernimmt die Drucker-Einstellung.', default: 'N', range: 'Y, N' },
+        { name: 'Pause unterdrücken', desc: 'Y = keine Pause zwischen Gruppen; der Schnitt erfolgt weiterhin nach der angegebenen Anzahl. N = Pause nach jeder Gruppe.', default: 'N', range: 'Y, N' },
+        { name: 'Bei Fehler schneiden', desc: 'Y = bei vorhandenem Cutter nach jedem ungültigen RFID-Etikett schneiden. N = nur beim letzten Wiederholungsversuch und wenn auch ein gültiges Etikett geschnitten würde.', default: 'Y', range: 'Y, N' },
       ],
     },
 
+    MD: {
+      name: '^MD – Relative Druckdunkelheit', desc: 'Korrigiert die Druckdunkelheit relativ zur mit ~SD eingestellten Basis.',
+      fullName: 'Media Darkness', germanName: 'Relative Druckdunkelheit',
+      params: [{ name: 'Korrektur', desc: 'Negative Werte drucken heller, positive dunkler. Dezimalwerte sind firmwareabhängig.', default: '0', range: '−30 bis +30' }],
+    },
     SD: {
       name: '~SD – Dunkelheit (Darkness)', desc: 'Stellt die Druckdunkelheit ein – höhere Werte drucken kräftiger/dunkler, verschleißen aber den Druckkopf schneller.',
       fullName: 'Set Darkness', germanName: 'Dunkelheit einstellen',

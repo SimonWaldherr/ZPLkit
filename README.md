@@ -7,13 +7,14 @@ Die Anwendung kann als statische Website betrieben werden oder mit dem mitgelief
 ## Funktionen
 
 - Etiketten visuell erstellen und bestehende ZPL-Dateien bearbeiten
+- Etiketten oder ganze Dokumente als komprimierten Link teilen; aus anderer Software direkt in Studio öffnen
 - Text, Barcodes, Formen und Grafiken platzieren
 - Dateien mit mehreren Etiketten (Druck-Spools) öffnen, bearbeiten und speichern
 - QR-Codes (`^BQ`) echt codieren – scanbar in Vorschau und Export (siehe unten)
 - Etiketten zwischen Druckerauflösungen umrechnen (siehe unten)
 - Maße in Dots oder Millimetern eingeben und anzeigen
 - ZPL sowie PNG, JPG, GIF und PDF exportieren
-- Seriendruck mit CSV- oder XLSX-Daten vorbereiten
+- Seriendruck mit CSV-, TSV- oder XLSX-Daten vorbereiten
 - ZPL-Dateien vergleichen und ZPL-Befehle erläutern
 - Arbeitsbereich mit größenveränderbaren Seitenleisten und einblendbarer ZPL-Konsole anpassen
 - Zwischen System-, hellem, dunklem und kontrastreichem Theme wechseln; Layout und Theme bleiben lokal gespeichert
@@ -29,6 +30,128 @@ die aktuelle Einheit (Dots oder Millimeter) gilt auch für diesen Dialog.
 Sperren und Sichtbarkeit befinden sich im Tab „Ebenen“. `Ctrl/Cmd+C`, `X`
 und `V` funktionieren für Elemente und Gruppen, ohne die normale
 Zwischenablage in Textfeldern zu überschreiben.
+
+## Teilen und aus anderer Software öffnen
+
+„Teilen“ erstellt einen Link zur bearbeitbaren Momentaufnahme des aktuellen
+Etiketts oder des ganzen Dokuments, inklusive DPI und Editor-Metadaten.
+Die Daten liegen komprimiert im URL-Fragment `#share=v1.z.…`; ein Upload-Backend
+ist nicht erforderlich. Große Dokumente können stattdessen als ZPL-Datei
+weitergegeben werden. Vor dem Ersetzen eines bestehenden Arbeitsstands fragt
+Studio nach. Jeder mit dem Link kann seinen Inhalt lesen.
+
+Andere Anwendungen können mit `ZPLkit.Sharing.createUrl(studioUrl, payload)`
+einen „In ZPLkit-Studio öffnen“-Link erzeugen. Das funktioniert mit beiden
+Bundles oder dem eigenständigen `zplkit/zpl-sharing.js`.
+
+[Format, API, JavaScript-/Python-Beispiele und Grenzen](docs/sharing.md) ·
+[Ausführbares Integrationsbeispiel](zplkit/examples/open-in-studio.html)
+
+## Arbeitsbereich und Leisten
+
+Die obere Leiste trennt Dateiaktionen von Etikettennavigation, Zoom und
+Ausrichtungshilfen. „Export & Druck“ bündelt Druck-ZPL, Bild-/PDF-Export und
+Druckaktionen. Unter „Weitere Funktionen“ liegen Vorschau, Vergleich,
+Preflight, Beispieldaten, Sprache und Darstellung. Die Menüs lassen sich mit
+Escape schließen und bleiben auch in schmalen Fenstern im sichtbaren Bereich.
+
+„Werkzeuge“ und „Eigenschaften“ blenden die linke bzw. rechte Seitenleiste ein
+und aus; der Zustand wird wie die Leistenbreiten lokal gespeichert. Auf
+schmalen Bildschirmen liegt die rechte Leiste über der Arbeitsfläche und lässt
+sich über denselben Schalter wieder schließen. Die Tabs zeigen vollständige
+Namen und sind mit Pfeil links/rechts sowie Pos1/Ende bedienbar.
+
+Die untere ZPL-Konsole bündelt Code/Erklärung, Hinweise und „Übernehmen“ in
+ihrer Kopfzeile. Bei Mehrfachdateien zeigt sie das aktuell bearbeitete Etikett
+als Nummer an. Die Konsole bleibt ein-/ausklappbar und in der Höhe verstellbar.
+
+## ZPL-II-Druckeinstellungen
+
+Druckverfahren, Ausgabemodus und Medienerkennung lassen sich getrennt einstellen:
+
+- **`^MT`**: Thermodirekt ohne Farbband oder Thermotransfer mit Farbband.
+- **`^MM`**: Abreißen, Peel-off/Spendekit, Aufwickeln, Applikator, Cutter,
+  verzögerter Cutter, RFID oder Kiosk. Der zweite Parameter für **Prepeel**
+  bleibt beim Import erhalten und ist separat bearbeitbar. Reservierte oder
+  unbekannte importierte Modusbuchstaben werden angezeigt und erhalten.
+- **`^MN`**: Endlosmaterial, Lücke/Steg, Schwarzmarke sowie modellabhängige
+  automatische Erkennung und variable Länge. Der Schwarzmarkenversatz wird
+  in Dots gespeichert und bei einer DPI-Umrechnung mit umgerechnet.
+
+„Druckereinstellung beibehalten“ lässt den jeweiligen Befehl im Export weg.
+Eine importierte Datei ohne `^MM` erzwingt daher keinen Tear-off-Modus mehr;
+neue Labels beginnen weiterhin mit Tear-off. Nicht unterstützte Parameterformen
+bleiben vollständig als Rohbefehle erhalten.
+
+Peel-off setzt ein eingebautes Spendekit, den Entnahmesensor und korrekt
+geführtes Trägermaterial voraus. Prepeel wird von Link-OS nicht unterstützt.
+Cutter, Applikator, RFID und Kiosk benötigen passende Hardware/Firmware.
+Die Medienauswahl führt keine Kalibrierung aus. Der zulässige
+Schwarzmarkenversatz hängt vom Druckermodell ab; die Oberfläche zeigt die
+Bereiche an. Vorschau und Rasterexport simulieren weder Sensoren noch Kits.
+
+Bibliotheksfelder unter `label.settings`: `mediaTracking` (historischer Name
+für den `^MM`-Ausgabemodus), `mediaPrepeel`, `printMethod`, `mediaSensing` und
+`blackMarkOffset`. `null` bedeutet bei den neuen Feldern „nicht angegeben“.
+
+Referenzen: [Zebra: ^MM](https://docs.zebra.com/us/en/printers/software/zpl-pg/zpl-commands/%5Emm.html),
+[Zebra: ^MN](https://docs.zebra.com/us/en/printers/software/zpl-pg/zpl-commands/%5Emn.html),
+[Zebra-Programmierhandbuch: ^MT](https://cpws.zebra.com/cpws/docs/zpl/zpl-zbi2-pm-en.pdf).
+
+Die Etiketteneigenschaften bieten alle fünf Parameter von `^PQq,p,r,o,e`:
+Druckmenge, Pause-/Schnittintervall, Kopien je Seriennummer, Unterdrücken der
+Pause und Schneiden nach einem RFID-Fehleretikett. Leere Felder verwenden die
+ZPL-Standardwerte; bestehende Parameter bleiben beim Bearbeiten anderer
+Felder erhalten. Neue Labels behalten die bisherige Vorgabe `^PQ,,,Y`.
+
+`^PQ50,10,1,Y,N` druckt insgesamt 50 Etiketten mit einem Gruppenintervall von
+10, ohne zwischen den Gruppen anzuhalten. Die Wiederholungen je Seriennummer
+multiplizieren die Gesamtmenge nicht. Vorschau und Bild-/PDF-Export zeigen
+weiterhin das einzelne Layout. Der direkte Backend-Druck verwendet die Anzahl
+aus dem Druckdialog und normalisiert dazu nur die Druckkopie des Labels;
+die bearbeitete Datei und das separate RFID-Fehler-Schnittverhalten bleiben
+erhalten. Seriennummern werden durch diese Erweiterung nicht im Editor simuliert.
+
+`^MD` lässt sich als relative Dunkelheit von −30 bis +30 einstellen.
+Die absolute Dunkelheit `~SD` und die relative Korrektur bleiben getrennt;
+Dezimalwerte wie `~SD16.5^MD-2.5` gehen beim Import und Export nicht mehr verloren.
+Ob der Drucker Zehntelschritte unterstützt, hängt von Modell und Firmware ab.
+
+Die Bibliothek behält `label.settings.pq` als unveränderten Parametertext und
+bietet über `ZPLkit.Model` zusätzlich geprüfte Hilfsfunktionen:
+
+```js
+const label = ZPLkit.parse('^XA^PQ50,10,1,Y,N^XZ');
+const quantity = ZPLkit.Model.parsePrintQuantity(label.settings.pq);
+// quantity.quantity === 50; quantity.cutOnError === 'N'
+label.settings.pq = ZPLkit.Model.setPrintQuantityParameter(
+  label.settings.pq, 'quantity', 100
+);
+label.settings.darknessOffset = -2.5;
+const zpl = ZPLkit.generate(label);
+```
+
+`parsePrintQuantity` ergänzt ausgelassene Parameter mit den ZPL-Standardwerten
+und wirft bei ungültigen Werten einen Fehler. Der normale ZPL-Import bewahrt
+auch unbekannte Parametertexte, damit bestehende Dateien lesbar bleiben.
+
+Referenzen: [Zebra: ^PQ](https://docs.zebra.com/us/en/printers/software/zpl-pg/zpl-commands/%5Epq.html),
+[Zebra-Programmierhandbuch: ^MD und ~SD](https://www.zebra.com/content/dam/support-dam/en/documentation/unrestricted/guide/software/zpl-zbi2-pg-en.pdf).
+
+## Datenimport für den Seriendruck
+
+Der Import erkennt Komma, Semikolon und Tabulator als Trennzeichen automatisch.
+Auch Excel-Dateien mit einer vorangestellten `sep=;`-Zeile werden unterstützt;
+diese Zeile wird nicht als Spaltenüberschrift übernommen. `.tsv`-Dateien können
+im selben Dateidialog wie CSV und XLSX geöffnet werden.
+
+CSV-Spalten benötigen eindeutige, nicht leere Überschriften. Doppelte Namen
+(nach Entfernen äußerer Leerzeichen) und nicht geschlossene Anführungszeichen
+werden mit einer Fehlermeldung abgewiesen, damit keine Spaltenwerte unbemerkt
+überschrieben oder mehrere Datensätze zusammengezogen werden. Anführungszeichen,
+Trennzeichen und Zeilenumbrüche innerhalb korrekt zitierter Felder bleiben
+erhalten. Fehlende Werte am Zeilenende werden weiterhin als leer behandelt;
+zusätzliche Werte jenseits der Kopfspalten werden weiterhin ignoriert.
 
 ## Editor-Metadaten im ZPL
 

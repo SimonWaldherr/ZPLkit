@@ -183,7 +183,7 @@
   // theme must never dirty or alter printable ZPL data.
   const WORKSPACE_PREFS_KEY = 'zplStudioWorkspace';
   const THEME_PREF_KEY = 'zplStudioTheme';
-  const WORKSPACE_DEFAULTS = { leftWidth: 68, rightWidth: 320, consoleHeight: 280, consoleOpen: false };
+  const WORKSPACE_DEFAULTS = { leftWidth: 68, rightWidth: 320, consoleHeight: 280, consoleOpen: false, toolsHidden: false, inspectorHidden: false };
   const workspacePrefs = Object.assign({}, WORKSPACE_DEFAULTS);
 
   try {
@@ -219,6 +219,15 @@
     $('consoleSplitter').setAttribute('aria-valuenow', String(Math.round(workspacePrefs.consoleHeight)));
     $('consoleSplitter').setAttribute('aria-valuemax', String(maxConsoleHeight()));
   }
+  function applySidebarVisibility() {
+    [['toolsHidden', 'toolbox', 'leftSidebarSplitter', 'btnToggleTools'],
+      ['inspectorHidden', 'inspector', 'rightSidebarSplitter', 'btnToggleInspector']].forEach(function (entry) {
+      const hidden = !!workspacePrefs[entry[0]];
+      $(entry[1]).hidden = hidden;
+      $(entry[2]).hidden = hidden;
+      $(entry[3]).setAttribute('aria-expanded', String(!hidden));
+    });
+  }
   function setConsoleOpen(open, persist) {
     workspacePrefs.consoleOpen = !!open;
     $('bottomConsole').classList.toggle('is-collapsed', !workspacePrefs.consoleOpen);
@@ -242,6 +251,38 @@
   setTheme(initialTheme, false);
   applyWorkspaceDimensions();
   setConsoleOpen(workspacePrefs.consoleOpen, false);
+  applySidebarVisibility();
+  [['btnToggleTools', 'toolsHidden'], ['btnToggleInspector', 'inspectorHidden']].forEach(function (entry) {
+    $(entry[0]).addEventListener('click', function () {
+      workspacePrefs[entry[1]] = !workspacePrefs[entry[1]];
+      applySidebarVisibility(); persistWorkspace();
+    });
+  });
+  // Native disclosures retain normal Tab navigation; Escape returns focus to
+  // their trigger, and opening one closes the other to avoid overlapping menus.
+  document.querySelectorAll('.toolbar-menu').forEach(function (menu) {
+    menu.addEventListener('toggle', function () {
+      if (!menu.open) return;
+      document.querySelectorAll('.toolbar-menu').forEach(function (other) { if (other !== menu) other.open = false; });
+      const trigger = menu.querySelector('summary').getBoundingClientRect();
+      const panel = menu.querySelector('.toolbar-menu-content');
+      const panelWidth = panel.getBoundingClientRect().width;
+      const top = Math.min(trigger.bottom + 6, Math.max(8, window.innerHeight - 160));
+      panel.style.left = Math.max(8, Math.min(trigger.left, window.innerWidth - panelWidth - 8)) + 'px';
+      panel.style.right = 'auto';
+      panel.style.top = top + 'px';
+      panel.style.maxHeight = Math.max(120, window.innerHeight - top - 8) + 'px';
+    });
+    menu.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape') { event.stopPropagation(); menu.open = false; menu.querySelector('summary').focus(); }
+    });
+    menu.addEventListener('click', function (event) {
+      if (event.target.closest('button')) menu.open = false;
+    });
+  });
+  document.addEventListener('pointerdown', function (event) {
+    document.querySelectorAll('.toolbar-menu[open]').forEach(function (menu) { if (!menu.contains(event.target)) menu.open = false; });
+  });
 
   $('themeSelect').addEventListener('change', function () {
     setTheme(this.value, true);
@@ -757,7 +798,7 @@
     clearTimeout(nudgeHistoryTimer);
     doc.labels.forEach(labelGuides);
     state.doc = doc;
-    const recoveredIndex = options && options.recovered ? parseInt(doc.activeIndex, 10) || 0 : 0;
+    const recoveredIndex = options && (options.recovered || options.shared) ? parseInt(doc.activeIndex, 10) || 0 : 0;
     state.doc.activeIndex = clamp(recoveredIndex, 0, doc.labels.length - 1);
     state.labelHistories = [];
     state.label = doc.labels[state.doc.activeIndex];
@@ -772,7 +813,7 @@
     fitZoom();
     renderAll();
     $('btnSave').disabled = !hasSaveTarget();
-    if (options && options.recovered) markDocumentRecovered(); else markDocumentClean();
+    if (options && (options.recovered || options.shared)) markDocumentRecovered(); else markDocumentClean();
   }
 
   function setActiveLabel(index) {
@@ -3248,8 +3289,28 @@
     html += '<div class="btn-row"><button id="btnDpiConvert" title="Alle Dot-Werte dieses Etiketts auf eine andere Druckerauflösung umrechnen">Auf andere DPI umrechnen&hellip;</button></div>';
     html += '<p class="hint">Breite/H&ouml;he sind die Etikettengr&ouml;&szlig;e in Bildpunkten (Dots); die Drucker-DPI bestimmt, wie viele Dots einem Millimeter entsprechen. Ein ZPL-Etikett enth&auml;lt selbst keine Auflösung &ndash; dieselbe Datei wird auf einem 300-dpi-Drucker daher nur zwei Drittel so gro&szlig; wie auf einem 203-dpi-Drucker. Beim Wechsel der DPI bietet der Editor deshalb an, alle Werte mit umzurechnen.</p>';
     html += '<div class="section-title">Druckeinstellungen</div>';
-    html += field('Medientransport (^MM)', '<select id="lsMM"><option value="T">Tear-off</option><option value="C">Cutter</option><option value="P">Peel-off</option><option value="R">Rewind</option><option value="A">Applicator</option></select>');
-    html += '<p class="hint">Was der Drucker nach dem Druck tut: abrei&szlig;en, schneiden, abziehen, zur&uuml;ckspulen oder spenden.</p>';
+    function printerOptions(options, current) {
+      let result = '<option value="">Druckereinstellung beibehalten</option>';
+      options.forEach(function (option) { result += '<option value="' + option.id + '">' + escapeHtml(option.label) + '</option>'; });
+      if (current && !options.some(function (option) { return option.id === current; })) {
+        result += '<option value="' + escapeHtml(current) + '">Importiert: ' + escapeHtml(current) + ' (modellabhängig)</option>';
+      }
+      return result;
+    }
+    html += field('Druckverfahren (^MT)', '<select id="lsPrintMethod">' + printerOptions([{ id: 'D', label: 'Thermodirekt – ohne Farbband' }, { id: 'T', label: 'Thermotransfer – mit Farbband' }], s.printMethod) + '</select>');
+    html += field('Ausgabemodus / Kit (^MM)', '<select id="lsMM">' + printerOptions(M.PRINT_MODES, s.mediaTracking) + '</select>');
+    if (s.mediaTracking === 'P') {
+      html += '<p class="hint">Peel-off benötigt ein eingebautes Spendekit mit Entnahmesensor und korrekt eingelegtem Trägermaterial. Der Drucker wartet nach jedem Etikett auf dessen Entnahme.</p>';
+    } else if (s.mediaTracking === 'D') {
+      html += '<p class="hint">Verzögertes Schneiden benötigt einen Cutter. Der Schnitt wird durch einen separat gesendeten ~JK-Befehl ausgelöst.</p>';
+    } else if (s.mediaTracking && s.mediaTracking !== 'T') {
+      html += '<p class="hint">Dieser Ausgabemodus benötigt passende Hardware und Firmware. Die Auswahl erkennt oder installiert kein Drucker-Kit.</p>';
+    }
+    html += field('Prepeel (^MM, zweiter Parameter)', '<select id="lsPrepeel"><option value="">Parameter weglassen</option><option value="N">Aus (N)</option><option value="Y">Ein (Y)</option></select>');
+    html += '<p class="hint">Prepeel löst das nächste Etikett vor dem Druck kurz vom Träger. Nur für kompatible Peel-off-Drucker; Link-OS unterstützt diese Option nicht. Ein importierter Wert bleibt auch bei einem Moduswechsel erhalten.</p>';
+    html += field('Medienerkennung (^MN)', '<select id="lsMediaSensing">' + printerOptions(M.MEDIA_SENSING, s.mediaSensing) + '</select>');
+    html += field('Schwarzmarkenversatz (^MN, Dots)', '<input type="number" id="lsBlackMarkOffset" step="1" min="-240" max="566" placeholder="Standard: 0">');
+    html += '<p class="hint">Der Versatz wirkt nur bei Schwarzmarkenerkennung. Zulässige Bereiche sind modellabhängig: meist −120 bis 283 Dots, Thermodirekt-only −80 bis 283, 600 dpi −240 bis 566, KR403 −75 bis 283. Die Medienwahl startet keine Kalibrierung.</p>';
     html += field('Home-Offset (^LH x,y)', fieldPair('<input type="number" id="lsHomeX" style="margin-right:6px">', '<input type="number" id="lsHomeY">'));
     html += field('Label-Verschiebung Y (^LS)', '<input type="number" id="lsShift">');
     html += '<p class="hint">Verschiebt den Nullpunkt bzw. den Druck senkrecht &ndash; hilfreich, wenn der Drucker leicht versetzt druckt.</p>';
@@ -3258,9 +3319,20 @@
     if (s.encoding !== '28' && labelHasNonAscii()) {
       html += '<p class="hint" style="color:#B3261E">Dieses Label enth&auml;lt Sonderzeichen (z.&nbsp;B. Uml&auml;ute), aber der Zeichensatz ist nicht auf 28 (UTF-8) gesetzt &ndash; auf einem echten Drucker k&ouml;nnen diese Zeichen dann falsch oder gar nicht gedruckt werden. Auf 28 stellen, sofern der Drucker UTF-8 unterst&uuml;tzt (bei allen halbwegs aktuellen Zebra-Druckern der Fall).</p>';
     }
-    html += field('Druckdunkelheit (~SD, 0&ndash;30, leer = unver&auml;ndert)', '<input type="number" min="0" max="30" id="lsDarkness">');
+    html += field('Druckdunkelheit (~SD, 0&ndash;30, leer = unver&auml;ndert)', '<input type="number" min="0" max="30" step="0.1" id="lsDarkness">');
+    html += field('Relative Dunkelheit (^MD, −30 bis +30)', '<input type="number" min="-30" max="30" step="0.1" id="lsDarknessOffset" placeholder="unverändert">');
+    html += '<p class="hint">^MD wird zur Basisdunkelheit (~SD) addiert. Dezimalwerte benötigen passende Drucker-Firmware.</p>';
     html += field('Druckgeschwindigkeit (^PR, leer = unver&auml;ndert)', '<input type="text" id="lsPrintSpeed" placeholder="z.&nbsp;B. 6,6">');
     html += '<p class="hint">Dunkelheit und Geschwindigkeit werden oft zusammen abgestimmt &ndash; schneller gedruckte Labels brauchen meist etwas mehr Dunkelheit.</p>';
+    html += '<div class="section-title">Druckmenge (^PQ)</div>';
+    M.PRINT_QUANTITY_PARAMS.forEach(function (param) {
+      const id = 'lsPQ_' + param.key;
+      const input = param.min != null
+        ? '<input type="number" id="' + id + '" min="' + param.min + '" max="99999999" step="1" placeholder="Standard: ' + param.default + '">'
+        : '<select id="' + id + '"><option value="">Standard (' + param.default + ')</option><option value="N">Nein (N)</option><option value="Y">Ja (Y)</option></select>';
+      html += field(param.label, input);
+    });
+    html += '<p class="hint">Die Menge gilt für den ZPL-Export. Vorschau und Bildexport zeigen ein Etikett; beim direkten Druck gilt die Anzahl im Druckdialog. Pause / Schnitt: 0 = kein Intervall. „Pause unterdrücken“ lässt das Schnittintervall bestehen. Kopien je Seriennummer steuern die Wiederholung bei serialisierten Feldern; sie multiplizieren die Gesamtmenge nicht.</p>';
     html += '<div class="section-title">&Auml;nderungsnotiz</div>';
     html += field('Notiz (wird im Label mitgespeichert, nicht gedruckt)', '<textarea id="lsNote" rows="2" placeholder="z.&nbsp;B. Grund der &Auml;nderung, Datum, K&uuml;rzel&hellip;"></textarea>');
     html += '<p class="hint">Praktisch in Kombination mit dem Label-Vergleich, um sp&auml;ter nachzuvollziehen, was sich zwischen zwei Versionen ge&auml;ndert hat.</p>';
@@ -3296,19 +3368,37 @@
     $('lsHeight').value = s.heightDots;
     syncLabelSizeFields();
     wireDpiControls(s);
-    $('lsMM').value = s.mediaTracking;
+    $('lsMM').value = s.mediaTracking || '';
+    $('lsPrintMethod').value = s.printMethod || '';
+    $('lsPrepeel').value = s.mediaPrepeel || '';
+    $('lsPrepeel').disabled = !s.mediaTracking;
+    $('lsMediaSensing').value = s.mediaSensing || '';
+    $('lsBlackMarkOffset').value = s.blackMarkOffset == null ? '' : s.blackMarkOffset;
+    $('lsBlackMarkOffset').disabled = s.mediaSensing !== 'M';
     $('lsHomeX').value = s.homeX;
     $('lsHomeY').value = s.homeY;
     $('lsShift').value = s.labelShiftY;
     $('lsEncoding').value = s.encoding;
     $('lsDarkness').value = s.darkness == null ? '' : s.darkness;
+    $('lsDarknessOffset').value = s.darknessOffset == null ? '' : s.darknessOffset;
+    const pqParts = (s.pq == null ? ',,,Y' : s.pq).split(',');
+    M.PRINT_QUANTITY_PARAMS.forEach(function (param, index) {
+      const input = $('lsPQ_' + param.key);
+      input.value = pqParts[index] || '';
+      input.addEventListener('change', function () {
+        if (!input.reportValidity()) return;
+        try { s.pq = M.setPrintQuantityParameter(s.pq == null ? ',,,Y' : s.pq, param.key, input.value); }
+        catch (err) { showToast(err.message, true); return; }
+        renderAll(); updateZplSource(); pushHistory();
+      });
+    });
     $('lsPrintSpeed').value = s.printSpeed == null ? '' : s.printSpeed;
     $('lsNote').value = s.note || '';
 
-    function bind(id, setter) {
+    function bind(id, setter, validate) {
       const elx = $(id);
       if (!elx) return;
-      elx.addEventListener('change', function () { setter(elx); renderAll(); updateZplSource(); pushHistory(); });
+      elx.addEventListener('change', function () { if (validate && !elx.reportValidity()) return; setter(elx); renderAll(); updateZplSource(); pushHistory(); });
     }
     bind('lsWidth', function (e) { s.widthDots = clampLabelDots(parseInt(e.value, 10)); e.value = s.widthDots; syncLabelSizeFields(); });
     bind('lsHeight', function (e) { s.heightDots = clampLabelDots(parseInt(e.value, 10)); e.value = s.heightDots; syncLabelSizeFields(); });
@@ -3325,12 +3415,17 @@
     }
     bind('lsWidthMm', function (e) { const d = mmFieldDots(e.value); if (d != null) s.widthDots = d; syncLabelSizeFields(); });
     bind('lsHeightMm', function (e) { const d = mmFieldDots(e.value); if (d != null) s.heightDots = d; syncLabelSizeFields(); });
-    bind('lsMM', function (e) { s.mediaTracking = e.value; });
+    bind('lsMM', function (e) { s.mediaTracking = e.value || null; });
+    bind('lsPrintMethod', function (e) { s.printMethod = e.value || null; });
+    bind('lsPrepeel', function (e) { s.mediaPrepeel = e.value || null; });
+    bind('lsMediaSensing', function (e) { s.mediaSensing = e.value || null; });
+    bind('lsBlackMarkOffset', function (e) { s.blackMarkOffset = e.value === '' ? null : Number(e.value); }, true);
     bind('lsHomeX', function (e) { s.homeX = parseInt(e.value, 10) || 0; });
     bind('lsHomeY', function (e) { s.homeY = parseInt(e.value, 10) || 0; });
     bind('lsShift', function (e) { s.labelShiftY = parseInt(e.value, 10) || 0; });
     bind('lsEncoding', function (e) { s.encoding = e.value || '0'; });
-    bind('lsDarkness', function (e) { s.darkness = e.value === '' ? null : parseInt(e.value, 10); });
+    bind('lsDarkness', function (e) { s.darkness = e.value === '' ? null : Number(e.value); }, true);
+    bind('lsDarknessOffset', function (e) { s.darknessOffset = e.value === '' ? null : Number(e.value); }, true);
     bind('lsPrintSpeed', function (e) { s.printSpeed = e.value.trim() === '' ? null : e.value.trim(); });
     bind('lsNote', function (e) { s.note = e.value; });
     const kp = $('lsKeepPreamble');
@@ -3486,7 +3581,10 @@
     if (scope) {
       const multi = labelCount() > 1;
       scope.classList.toggle('hidden', !multi);
-      if (multi) scope.textContent = t('doc.zpl-tab-scope', { count: labelCount() });
+      if (multi) {
+        scope.textContent = t('console.scope.short', { index: activeIndex() + 1, count: labelCount() });
+        scope.title = t('doc.zpl-tab-scope', { count: labelCount() });
+      }
     }
     if (state.zplExplainView) renderZplExplainView();
     updateZplHighlight();
@@ -3681,11 +3779,26 @@
   // Tabs
   // ---------------------------------------------------------------------
   document.querySelectorAll('.tab-btn').forEach(function (btn) {
+    btn.id = 'inspector-tab-' + btn.dataset.tab;
+    btn.setAttribute('aria-controls', 'tab-' + btn.dataset.tab);
+    $('tab-' + btn.dataset.tab).setAttribute('aria-labelledby', btn.id);
+    btn.tabIndex = btn.classList.contains('active') ? 0 : -1;
+    btn.addEventListener('keydown', function (event) {
+      const tabs = Array.from(document.querySelectorAll('.tab-btn'));
+      let index = tabs.indexOf(btn);
+      if (event.key === 'ArrowRight') index = (index + 1) % tabs.length;
+      else if (event.key === 'ArrowLeft') index = (index + tabs.length - 1) % tabs.length;
+      else if (event.key === 'Home') index = 0;
+      else if (event.key === 'End') index = tabs.length - 1;
+      else return;
+      event.preventDefault(); tabs[index].click(); tabs[index].focus();
+    });
     btn.addEventListener('click', function () {
-      document.querySelectorAll('.tab-btn').forEach(function (b) { b.classList.remove('active'); b.setAttribute('aria-selected', 'false'); });
+      document.querySelectorAll('.tab-btn').forEach(function (b) { b.classList.remove('active'); b.setAttribute('aria-selected', 'false'); b.tabIndex = -1; });
       document.querySelectorAll('.tab-panel').forEach(function (p) { p.classList.remove('active'); });
       btn.classList.add('active');
       btn.setAttribute('aria-selected', 'true');
+      btn.tabIndex = 0;
       $('tab-' + btn.dataset.tab).classList.add('active');
       if (btn.dataset.tab === 'merge') renderMergePreview();
       if (btn.dataset.tab === 'history') renderHistoryPanel();
@@ -4671,6 +4784,103 @@
     showToast(t('metadata.print-exported', { name: name }));
   });
 
+  // ---------------------------------------------------------------------
+  // Portable sharing links: a document snapshot, never a print instruction.
+  // ---------------------------------------------------------------------
+  let shareImportSequence = 0;
+  function sharingError(error) {
+    const known = ['invalid', 'tooLarge', 'unsupported', 'corrupt', 'version', 'url'];
+    return t('share.error.' + (error && known.includes(error.code) ? error.code : 'invalid'));
+  }
+  async function importSharedFragment() {
+    const sequence = ++shareImportSequence;
+    const fragment = window.location.hash;
+    if (!fragment.startsWith('#share=')) return;
+    const initialDocument = state.doc;
+    try {
+      const payload = await window.ZPLSharing.decodeFragment(fragment);
+      if (sequence !== shareImportSequence || window.location.hash !== fragment) return;
+      const doc = window.ZPLSharing.toDocument(payload);
+      // Check CURRENT state after asynchronous decoding: edits or a restored
+      // autosave made while decoding must not be replaced without a choice.
+      if ((state.doc !== initialDocument || serializedDocument() !== cleanDocumentSnapshot) && !confirm(t('share.replace', {
+        name: payload.name || 'label.zpl', count: doc.labels.length,
+      }))) return;
+      loadDocument(doc, payload.name || 'label.zpl', null, null, { shared: true });
+      // Avoid importing the same snapshot again on reload; the original link
+      // remains reusable. Keep unrelated query parameters intact.
+      try { window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search); }
+      catch (_) { /* history restrictions do not invalidate an already loaded document */ }
+      showToast(t('share.opened', { count: doc.labels.length }));
+    } catch (error) {
+      if (sequence === shareImportSequence && window.location.hash === fragment) showToast(sharingError(error), true);
+    }
+  }
+
+  function openSharingDialog() {
+    let snapshots;
+    try {
+      const name = state.currentFileName || 'label.zpl';
+      const current = Object.assign({}, state.label, {
+        preamble: state.doc.preamble || state.label.preamble,
+        storedGraphics: state.doc.storedGraphics,
+      });
+      snapshots = {
+        current: { zpl: window.ZPLGenerator.generateZPL(current, { keepPreamble: state.keepPreamble !== false }),
+          dpi: [currentDpi()], activeLabel: 0, name: name },
+        document: { zpl: documentText(), dpi: state.doc.labels.map(label => label.settings.dpi || 203),
+          activeLabel: activeIndex(), name: name },
+      };
+    } catch (error) { showToast(sharingError(error), true); return; }
+    openModal('share.title',
+      '<p>' + escapeHtml(t('share.description')) + '</p>' +
+      '<div class="field-row"><label for="shareScope">' + escapeHtml(t('share.scope')) + '</label>' +
+      '<select id="shareScope"><option value="current">' + escapeHtml(t('share.current')) + '</option>' +
+      '<option value="document">' + escapeHtml(t('share.document')) + '</option></select></div>' +
+      '<div class="field-row"><label for="shareUrl">' + escapeHtml(t('share.link')) + '</label>' +
+      '<textarea id="shareUrl" rows="4" readonly spellcheck="false"></textarea></div>' +
+      '<p id="shareStatus" role="status" aria-live="polite"></p>' +
+      '<p class="hint">' + escapeHtml(t('share.privacy')) + '</p>' +
+      '<div class="btn-row"><button id="btnCopyShare" class="primary" disabled>' + escapeHtml(t('share.copy')) + '</button>' +
+      '<button id="btnShareFile">' + escapeHtml(t('share.file')) + '</button></div>');
+    const scope = $('shareScope'), output = $('shareUrl'), status = $('shareStatus'), copy = $('btnCopyShare');
+    let generation = 0;
+    async function generateLink() {
+      const request = ++generation;
+      copy.disabled = true;
+      output.value = '';
+      status.textContent = t('share.working');
+      try {
+        const url = await window.ZPLSharing.createUrl(window.location.href, snapshots[scope.value]);
+        if (request !== generation || !output.isConnected) return;
+        output.value = url;
+        copy.disabled = false;
+        status.textContent = t(url.length > window.ZPLSharing.limits.warningUrlLength ? 'share.long' : 'share.ready', { length: url.length });
+      } catch (error) {
+        if (request === generation && output.isConnected) status.textContent = sharingError(error);
+      }
+    }
+    scope.addEventListener('change', generateLink);
+    copy.addEventListener('click', async function () {
+      const url = output.value;
+      if (!url) return;
+      try {
+        if (!navigator.clipboard || !navigator.clipboard.writeText) throw new Error('Clipboard unavailable');
+        await navigator.clipboard.writeText(url);
+        if (output.isConnected && output.value === url) status.textContent = t('share.copied');
+      } catch (_) {
+        if (output.isConnected) { output.focus(); output.select(); status.textContent = t('share.manual'); }
+      }
+    });
+    $('btnShareFile').addEventListener('click', function () {
+      const snapshot = snapshots[scope.value];
+      const name = /\.(?:zpl|\d+zpl|txt|prn)$/i.test(snapshot.name) ? snapshot.name : snapshot.name + '.zpl';
+      downloadBlob(new Blob([snapshot.zpl], { type: 'text/plain;charset=utf-8' }), name);
+    });
+    generateLink();
+  }
+  $('btnShare').addEventListener('click', openSharingDialog);
+
   function downloadBlob(blob, filename) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -4959,7 +5169,11 @@
     // changes the disposable print clone, never the label being edited.
     const labelForPrint = cloneLabel(label);
     labelForPrint.settings = labelForPrint.settings || {};
-    labelForPrint.settings.pq = '1,0,1,Y';
+    let pq = labelForPrint.settings.pq;
+    [['quantity', 1], ['pauseEvery', 0], ['replicates', 1], ['overridePause', 'Y']].forEach(function (entry) {
+      pq = M.setPrintQuantityParameter(pq, entry[0], entry[1]);
+    });
+    labelForPrint.settings.pq = pq; // retain the independent cut-on-error flag
     return labelForPrint;
   }
 
@@ -6066,6 +6280,9 @@
   // silently swallowing a genuinely unexpected error.
   function friendlyMergeFileError(err) {
     const msg = (err && err.message) || String(err);
+    if (/duplicate header:/i.test(msg)) return 'Spaltenname mehrfach vorhanden: ' + msg.split('duplicate header: ')[1] + '. Bitte die Spalten eindeutig benennen.';
+    if (/empty header in column/i.test(msg)) return 'Spaltenüberschrift fehlt in Spalte ' + msg.match(/column (\d+)/)[1] + '. Bitte eine Überschrift ergänzen.';
+    if (/unterminated quoted field/i.test(msg)) return 'Ein CSV-Feld enthält ein nicht geschlossenes Anführungszeichen. Bitte die Datei korrigieren oder neu exportieren.';
     if (/input is empty/i.test(msg)) return 'Datei ist leer.';
     if (/not a valid xlsx|missing xl\/workbook/i.test(msg)) return 'Keine gültige XLSX-Datei. Bitte aus Excel als .xlsx oder .csv erneut exportieren.';
     if (/unsupported zip compression/i.test(msg)) return 'Dieses XLSX-Dateiformat wird nicht unterstützt. Bitte aus Excel neu speichern und erneut hochladen.';
@@ -6503,12 +6720,18 @@
   state.doc = singleLabelDocument(state.label);
   updateLabelNav();
   window.addEventListener('resize', function () {
+    document.querySelectorAll('.toolbar-menu[open]').forEach(function (menu) { menu.open = false; });
     applyWorkspaceDimensions();
     fitZoom();
     drawLabel();
   });
   const recoveryDraft = readAutosaveDraft();
-  if (recoveryDraft && confirm('Es gibt einen lokal gesicherten, noch nicht gespeicherten Stand' +
+  const hasIncomingShare = window.location.hash.startsWith('#share=');
+  if (hasIncomingShare && recoveryDraft) {
+    // Preserve the draft even if the link is damaged; the validated import
+    // below offers a replacement only after the old document is restored.
+    loadDocument(recoveryDraft.doc, recoveryDraft.fileName, null, null, { recovered: true });
+  } else if (recoveryDraft && confirm('Es gibt einen lokal gesicherten, noch nicht gespeicherten Stand' +
       (recoveryDraft.savedAt ? ' vom ' + new Date(recoveryDraft.savedAt).toLocaleString(editorLocaleTag()) : '') +
       '. Jetzt wiederherstellen?')) {
     loadDocument(recoveryDraft.doc, recoveryDraft.fileName, null, null, { recovered: true });
@@ -6517,6 +6740,9 @@
     if (recoveryDraft) removeAutosaveDraft();
     loadLabel(M.defaultLabel(), null, null);
   }
+
+  window.addEventListener('hashchange', importSharedFragment);
+  if (hasIncomingShare) importSharedFragment();
 
   // Probe the optional client once for both integrations. A missing script
   // (CSP/cache mismatch/third-party embedding), network failure or static

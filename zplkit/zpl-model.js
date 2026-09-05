@@ -248,6 +248,10 @@
         dpi: 203,             // not a ZPL field itself, just informs the ruler/zoom + new-image export
         homeX: 0, homeY: 0,   // ^LH
         mediaTracking: 'T',   // ^MM (T=tear off, C=cutter, P=peel-off, R=rewind, A=applicator, D=delayed cut)
+        mediaPrepeel: null,   // ^MM second parameter (Y/N); null = omitted
+        printMethod: null,    // ^MT: D = direct thermal, T = thermal transfer
+        mediaSensing: null,   // ^MN: N/Y/W/M/A/V; null = leave printer unchanged
+        blackMarkOffset: null, // ^MN second parameter in dots; null = omitted
         printMode: 'N',       // ^PON / ^POI (N=normal, I=invert both axes)
         // ^CI - defaults to UTF-8 (28), matching what this editor actually
         // exports (a .zpl file is always saved as UTF-8 bytes, see app.js's
@@ -258,13 +262,12 @@
         // (see zpl-parser.js) rather than being silently overridden here.
         encoding: '28',
         darkness: null,       // ~SD (0-30), null = leave unspecified
+        darknessOffset: null, // ^MD (-30 to 30), relative to ~SD
         printSpeed: null,     // ^PR
         labelShiftY: 0,       // ^LS
         note: '',             // free-text version/change note, round-tripped via a "^FXNOTIZ:" comment (ignored by the printer)
-        pq: null,             // ^PQ (raw parameter text verbatim, e.g. "1,0,1,Y") - not surfaced in the UI, kept only
-                              // so re-generating a label that already stated its own print quantity/pause/replicate/
-                              // override values reproduces them exactly instead of silently overwriting them with
-                              // this editor's own "no quantity specified" default of "^PQ,,,Y".
+        pq: null,             // ^PQ raw q,p,r,o,e; null keeps the editor default ",,,Y".
+                              // Typed access/editing via the print-quantity helpers below.
       },
       preamble: null,        // raw driver-config frame text (verbatim passthrough), or null
       elements: [],          // ordered array of element nodes (see makeElement)
@@ -355,7 +358,74 @@
   }
 
 
+  // ^PQ remains a single raw string in settings for lossless imports and old
+  // saved workspaces. These helpers provide a typed view without shadow state.
+  const PRINT_QUANTITY_PARAMS = [
+    { key: 'quantity', label: 'Druckmenge', min: 1, default: 1 },
+    { key: 'pauseEvery', label: 'Pause / Schnitt nach', min: 0, default: 0 },
+    { key: 'replicates', label: 'Kopien je Seriennummer', min: 0, default: 0 },
+    { key: 'overridePause', label: 'Pause unterdrücken', default: 'N' },
+    { key: 'cutOnError', label: 'Nach RFID-Fehleretikett schneiden', default: 'Y' },
+  ];
+
+  function validatePrintQuantityParameter(param, value) {
+    const text = String(value);
+    const valid = param.min != null
+      ? /^\d+$/.test(text) && Number(text) >= param.min && Number(text) <= 99999999
+      : /^[YN]$/.test(text);
+    if (!valid) throw new Error('^PQ: ' + param.label + ' muss ' +
+      (param.min != null ? 'eine ganze Zahl von ' + param.min + ' bis 99999999' : 'Y oder N') + ' sein.');
+    return param.min != null ? Number(text) : text;
+  }
+
+  function parsePrintQuantity(raw) {
+    const parts = (raw == null ? '' : String(raw)).split(',');
+    if (parts.length > 5) throw new Error('^PQ: Es sind höchstens fünf Parameter erlaubt.');
+    const result = {};
+    PRINT_QUANTITY_PARAMS.forEach(function (param, index) {
+      const value = parts[index];
+      result[param.key] = value == null || value === '' ? param.default : validatePrintQuantityParameter(param, value);
+    });
+    return result;
+  }
+
+  // Update one explicit parameter without rewriting omitted defaults or any
+  // other imported parameter. null/empty clears the parameter to its default.
+  function setPrintQuantityParameter(raw, key, value) {
+    const index = PRINT_QUANTITY_PARAMS.findIndex(function (param) { return param.key === key; });
+    if (index < 0) throw new Error('Unknown ^PQ parameter: ' + key);
+    const parts = (raw == null ? '' : String(raw)).split(',');
+    if (value != null && value !== '') validatePrintQuantityParameter(PRINT_QUANTITY_PARAMS[index], value);
+    while (parts.length <= index) parts.push('');
+    parts[index] = value == null ? '' : String(value);
+    return parts.join(',');
+  }
+
+  const PRINT_MODES = [
+    { id: 'T', label: 'Abreißen (Tear-off)' },
+    { id: 'P', label: 'Peel-off / Spendekit' },
+    { id: 'R', label: 'Aufwickeln (Rewind)' },
+    { id: 'A', label: 'Applikator' },
+    { id: 'C', label: 'Schneiden (Cutter)' },
+    { id: 'D', label: 'Verzögertes Schneiden' },
+    { id: 'F', label: 'RFID' },
+    { id: 'K', label: 'Kiosk' },
+  ];
+  const MEDIA_SENSING = [
+    { id: 'N', label: 'Endlosmaterial' },
+    { id: 'Y', label: 'Lücke / Steg (Gap/Web)' },
+    { id: 'W', label: 'Lücke / Steg (W, wie Y)' },
+    { id: 'M', label: 'Schwarzmarke (Black Mark)' },
+    { id: 'A', label: 'Automatisch bei Kalibrierung (modellabhängig)' },
+    { id: 'V', label: 'Endlos, variable Länge (KR403)' },
+  ];
+
   global.ZPLModel = {
+    PRINT_MODES: PRINT_MODES,
+    MEDIA_SENSING: MEDIA_SENSING,
+    PRINT_QUANTITY_PARAMS: PRINT_QUANTITY_PARAMS,
+    parsePrintQuantity: parsePrintQuantity,
+    setPrintQuantityParameter: setPrintQuantityParameter,
     uid: uid,
     clone: clone,
     // Generous cap (~65in at 300dpi) well under real browsers' canvas/GPU

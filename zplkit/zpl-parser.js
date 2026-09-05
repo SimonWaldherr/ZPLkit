@@ -190,6 +190,7 @@
   // per frame would give the wrong answer as soon as label 2 places a logo
   // that label 1 does not.
   function parseBodyInto(label, body) {
+    label.settings.mediaTracking = null; // imported absence must not force Tear-off
     const tokens = tokenize(body);
     const editorMetadataChunks = [];
     const editorMetadataRawEntries = [];
@@ -534,12 +535,25 @@
       if (tok.prefix === '^' && (m = /^LL(\d+)/.exec(a))) { label.settings.heightDots = Math.min(M.MAX_LABEL_DOTS, parseInt(m[1], 10)); continue; }
       if (tok.prefix === '^' && (m = /^LH(-?\d+),(-?\d+)/.exec(a))) { label.settings.homeX = parseInt(m[1], 10); label.settings.homeY = parseInt(m[2], 10); continue; }
       if (tok.prefix === '^' && (m = /^LS(-?\d+)/.exec(a))) { label.settings.labelShiftY = parseInt(m[1], 10); continue; }
-      if (tok.prefix === '^' && (m = /^MM([A-Z])/.exec(a))) { label.settings.mediaTracking = m[1]; continue; }
+      // Match the entire parameter list: future/malformed forms remain raw
+      // rather than silently dropping their suffix while editing another field.
+      if (tok.prefix === '^' && (m = /^MM([A-Z])(?:,([YN]?))?[\r\n]*$/.exec(a))) {
+        label.settings.mediaTracking = m[1];
+        label.settings.mediaPrepeel = m[2] == null ? null : m[2];
+        continue;
+      }
+      if (tok.prefix === '^' && (m = /^MT([DT])[\r\n]*$/.exec(a))) { label.settings.printMethod = m[1]; continue; }
+      if (tok.prefix === '^' && (m = /^MN([NYWMAV])(?:,([+-]?\d+|))?[\r\n]*$/.exec(a))) {
+        label.settings.mediaSensing = m[1];
+        label.settings.blackMarkOffset = m[2] == null ? null : m[2];
+        continue;
+      }
       if (tok.prefix === '^' && (m = /^PO([NI])/.exec(a))) { label.settings.printMode = m[1]; continue; }
       if (tok.prefix === '^' && (m = /^CI(\d+)/.exec(a))) { label.settings.encoding = m[1]; continue; }
-      if (tok.prefix === '~' && (m = /^SD(\d+)/.exec(a))) { label.settings.darkness = parseInt(m[1], 10); continue; }
+      if (tok.prefix === '~' && (m = /^SD(\d+(?:\.\d+)?)[\r\n]*$/.exec(a))) { label.settings.darkness = Number(m[1]); continue; }
+      if (tok.prefix === '^' && (m = /^MD([+-]?\d+(?:\.\d+)?)[\r\n]*$/.exec(a))) { label.settings.darknessOffset = Number(m[1]); continue; }
       if (tok.prefix === '^' && (m = /^PR([\d,]+)/.exec(a))) { label.settings.printSpeed = m[1]; continue; }
-      // ^PQ (quantity/pause/replicates/override) verbatim - stored so a label
+      // ^PQ (quantity/pause/replicates/override/cut-on-error) verbatim - stored so a label
       // that already specified these round-trips with its own values intact
       // instead of this editor's own default (see generateZPL) silently
       // replacing them, and so this doesn't fall to rawTail (which would
