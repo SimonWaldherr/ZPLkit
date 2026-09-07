@@ -4466,14 +4466,19 @@
   // ---------------------------------------------------------------------
   // CRC-16/CCITT, MSB-first, polynomial 0x1021, selectable initial value.
   // ---------------------------------------------------------------------
+  const CRC16_TABLE = new Uint16Array(256);
+  for (let i = 0; i < CRC16_TABLE.length; i++) {
+    let crc = i << 8;
+    for (let bit = 0; bit < 8; bit++) {
+      crc = (crc & 0x8000) ? ((crc << 1) ^ 0x1021) : (crc << 1);
+    }
+    CRC16_TABLE[i] = crc & 0xFFFF;
+  }
+
   function crc16(bytes, initial) {
     let crc = initial & 0xFFFF;
     for (let i = 0; i < bytes.length; i++) {
-      crc ^= (bytes[i] << 8);
-      for (let b = 0; b < 8; b++) {
-        crc = (crc & 0x8000) ? ((crc << 1) ^ 0x1021) : (crc << 1);
-        crc &= 0xFFFF;
-      }
+      crc = ((crc << 8) ^ CRC16_TABLE[((crc >> 8) ^ bytes[i]) & 0xFF]) & 0xFFFF;
     }
     return crc;
   }
@@ -4636,7 +4641,7 @@
   }
 
   function encodeRunLength(hexRow) {
-    let out = '';
+    const out = [];
     let i = 0;
     const n = hexRow.length;
     while (i < n) {
@@ -4646,54 +4651,31 @@
       let runLen = j - i;
 
       if (runLen <= 4) {
-        out += ch.repeat(runLen);
+        out.push(ch.repeat(runLen));
       } else {
         let remaining = runLen;
         while (remaining > 0) {
           const chunk = Math.min(remaining, 419);
-          out += repeatCodeFor(chunk) + ch;
+          out.push(repeatCodeFor(chunk) + ch);
           remaining -= chunk;
         }
       }
       i = j;
     }
-    return out;
+    return out.join('');
   }
 
-  function compressRows(hexRows) {
-    const out = [];
-    let prevStandalone = null; // this row's own encoding had it been emitted standalone, i.e.
-                               // ignoring any ':' collapse - lets chains of 3+ identical rows
-                               // all collapse to ':' instead of only every other row.
-    for (let r = 0; r < hexRows.length; r++) {
-      const rowHex = hexRows[r];
-
-      // Whole-row shortcuts checked against the FULL uncompressed row string.
-      let isAllZero = true;
-      let isAllF = true;
-      for (let k = 0; k < rowHex.length; k++) {
-        if (rowHex[k] !== '0') isAllZero = false;
-        if (rowHex[k] !== 'F') isAllF = false;
-        if (!isAllZero && !isAllF) break;
-      }
-
-      let standalone;
-      if (isAllZero) {
-        standalone = ',';
-      } else if (isAllF) {
-        standalone = '!';
-      } else {
-        standalone = encodeRunLength(rowHex);
-      }
-
-      if (r > 0 && standalone === prevStandalone) {
-        out.push(':');
-      } else {
-        out.push(standalone);
-      }
-      prevStandalone = standalone;
+  function compressRow(rowHex) {
+    let isAllZero = true;
+    let isAllF = true;
+    for (let k = 0; k < rowHex.length; k++) {
+      if (rowHex[k] !== '0') isAllZero = false;
+      if (rowHex[k] !== 'F') isAllF = false;
+      if (!isAllZero && !isAllF) break;
     }
-    return out.join('');
+    if (isAllZero) return ',';
+    if (isAllF) return '!';
+    return encodeRunLength(rowHex);
   }
 
   // -----------------------------------------------------------------------
@@ -4889,16 +4871,20 @@
   // below instead of inflating them back out to a throwaway RGBA buffer
   // just to re-derive the exact same bytes through the threshold step again.
   function hexEncodeBits(bytes, bytesPerRow, height, compress) {
-    const hexRows = [];
+    const encodedRows = [];
+    let previousRow = null;
     for (let y = 0; y < height; y++) {
       let rowHex = '';
       const rowBase = y * bytesPerRow;
       for (let c = 0; c < bytesPerRow; c++) {
         rowHex += HEX_BYTE[bytes[rowBase + c]];
       }
-      hexRows.push(rowHex);
+      // Retain only the preceding raw row. Repeated rows need no second
+      // RLE pass, and compressed images no longer retain every hex row.
+      encodedRows.push(compress ? (rowHex === previousRow ? ':' : compressRow(rowHex)) : rowHex);
+      previousRow = rowHex;
     }
-    const data = compress ? compressRows(hexRows) : hexRows.join('');
+    const data = encodedRows.join('');
     return { bytesPerRow: bytesPerRow, binaryByteCount: bytesPerRow * height, data: data };
   }
 
