@@ -129,27 +129,51 @@
     return { removed: m.removed, added: m.added, changed: changed, unchangedCount: m.pairs.length - changed.length };
   }
 
-  // Simple O(n*m) LCS-based line diff (fine at label-source scale) -> an
-  // array of {type:'same'|'del'|'add', line}.
+  // LCS line diff with deletion-first ties. Keep only two score rows and
+  // one direction bit per cell, instead of a full matrix of LCS lengths.
   function diffLines(textA, textB) {
     const a = textA.split('\n'), b = textB.split('\n');
-    const n = a.length, m = b.length;
-    const dp = new Array(n + 1);
-    for (let i = 0; i <= n; i++) dp[i] = new Uint16Array(m + 1);
-    for (let i = n - 1; i >= 0; i--) {
-      for (let j = m - 1; j >= 0; j--) {
-        dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
-      }
-    }
     const out = [];
+    let prefix = 0;
+    while (prefix < a.length && prefix < b.length && a[prefix] === b[prefix]) {
+      out.push({ type: 'same', line: a[prefix++] });
+    }
+    const n = a.length - prefix, m = b.length - prefix;
+    if (n === 0 || m === 0) {
+      for (let i = prefix; i < a.length; i++) out.push({ type: 'del', line: a[i] });
+      for (let j = prefix; j < b.length; j++) out.push({ type: 'add', line: b[j] });
+      return out;
+    }
+
+    const directions = new Array(n);
+    let next = new Uint32Array(m + 1), current = new Uint32Array(m + 1);
+    for (let i = n - 1; i >= 0; i--) {
+      const row = directions[i] = new Uint8Array(Math.ceil(m / 8));
+      const line = a[prefix + i];
+      for (let j = m - 1; j >= 0; j--) {
+        if (line === b[prefix + j]) {
+          current[j] = next[j + 1] + 1;
+        } else if (next[j] >= current[j + 1]) {
+          current[j] = next[j];
+          row[j >> 3] |= 1 << (j & 7);
+        } else {
+          current[j] = current[j + 1];
+        }
+      }
+      const swap = next; next = current; current = swap;
+    }
     let i = 0, j = 0;
     while (i < n && j < m) {
-      if (a[i] === b[j]) { out.push({ type: 'same', line: a[i] }); i++; j++; }
-      else if (dp[i + 1][j] >= dp[i][j + 1]) { out.push({ type: 'del', line: a[i] }); i++; }
-      else { out.push({ type: 'add', line: b[j] }); j++; }
+      if (a[prefix + i] === b[prefix + j]) {
+        out.push({ type: 'same', line: a[prefix + i] }); i++; j++;
+      } else if (directions[i][j >> 3] & (1 << (j & 7))) {
+        out.push({ type: 'del', line: a[prefix + i++] });
+      } else {
+        out.push({ type: 'add', line: b[prefix + j++] });
+      }
     }
-    while (i < n) { out.push({ type: 'del', line: a[i] }); i++; }
-    while (j < m) { out.push({ type: 'add', line: b[j] }); j++; }
+    while (i < n) out.push({ type: 'del', line: a[prefix + i++] });
+    while (j < m) out.push({ type: 'add', line: b[prefix + j++] });
     return out;
   }
 
