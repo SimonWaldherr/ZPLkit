@@ -21,6 +21,7 @@
     <button id="btnShare" data-i18n="share.title">Teilen</button>
     <details class="toolbar-menu"><summary data-i18n="Export & Druck">Export &amp; Druck</summary><div class="toolbar-menu-content">
     <button id="btnDownloadPrintZpl" title="Druck-ZPL ohne Editor-Metadaten herunterladen" data-i18n="Druck-ZPL" data-i18n-title="Druck-ZPL ohne Editor-Metadaten herunterladen">Druck-ZPL</button>
+    <button id="btnDownloadJson" title="Ganzes Dokument als portables JSON speichern" data-i18n="export.json" data-i18n-title="export.json.title">Studio-JSON</button>
     <select id="exportFormatSelect" title="Label als Bild oder PDF exportieren" data-i18n-title="Label als Bild oder PDF exportieren">
       <option value="" selected disabled data-i18n="Exportieren als…">Exportieren als&hellip;</option>
       <option value="png">PNG</option>
@@ -152,7 +153,7 @@
       <div class="inspector-library-body">
         <div class="btn-row">
           <button id="btnOpenFolder" title="Ordner mit .zpl-Dateien öffnen (wenn vom Browser unterstützt)" data-i18n="Ordner öffnen…" data-i18n-title="Ordner mit .zpl-Dateien öffnen (wenn vom Browser unterstützt)">Ordner öffnen…</button>
-          <button id="btnOpenFile" title="Einzelne .zpl-Datei öffnen" data-i18n="Datei öffnen…" data-i18n-title="Einzelne .zpl-Datei öffnen">Datei öffnen…</button>
+          <button id="btnOpenFile" title="ZPL- oder Studio-JSON-Datei öffnen" data-i18n="file.open.formats" data-i18n-title="file.open.formats.title">ZPL / JSON öffnen…</button>
         </div>
         <div class="btn-row">
           <select id="sampleSelect" title="Ein eingebautes Beispiel-Label laden, um den Editor auszuprobieren" data-i18n-title="Ein eingebautes Beispiel-Label laden, um den Editor auszuprobieren">
@@ -162,7 +163,7 @@
             <option value="barcodes" data-i18n="Mit mehreren Barcodes">Mit mehreren Barcodes</option>
           </select>
         </div>
-        <input type="file" id="fileInput" accept=".zpl,.200zpl,.300zpl,.txt,.prn" hidden>
+        <input type="file" id="fileInput" accept=".zpl,.200zpl,.300zpl,.txt,.prn,.json" hidden>
         <div id="libraryStatus" class="library-status">Kein Ordner geöffnet</div>
         <ul id="libraryList" class="library-list"></ul>
       </div>

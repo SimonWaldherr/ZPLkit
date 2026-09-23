@@ -798,7 +798,7 @@
     clearTimeout(nudgeHistoryTimer);
     doc.labels.forEach(labelGuides);
     state.doc = doc;
-    const recoveredIndex = options && (options.recovered || options.shared) ? parseInt(doc.activeIndex, 10) || 0 : 0;
+    const recoveredIndex = options && (options.recovered || options.shared || options.preserveActiveIndex) ? parseInt(doc.activeIndex, 10) || 0 : 0;
     state.doc.activeIndex = clamp(recoveredIndex, 0, doc.labels.length - 1);
     state.labelHistories = [];
     state.label = doc.labels[state.doc.activeIndex];
@@ -4746,6 +4746,16 @@
     const reader = new FileReader();
     reader.onload = function () {
       try {
+        if (/\.json$/i.test(file.name)) {
+          const payload = JSON.parse(String(reader.result).replace(/^\uFEFF/, ''));
+          const doc = window.ZPLSharing.toDocument(payload);
+          const zplFileName = payload.name || file.name.replace(/\.json$/i, '.zpl');
+          doc.labels.forEach(function (label) { label.sourceFileName = zplFileName; });
+          loadDocument(doc, zplFileName, null, null, { preserveActiveIndex: true });
+          const note = doc.labels.length > 1 ? ' ' + t('doc.opened-multi', { count: doc.labels.length }) : '';
+          showToast('„' + file.name + '“ geladen.' + note);
+          return;
+        }
         const note = openParsedDocument(reader.result, file.name, null, null);
         showToast('„' + file.name + '“ geladen (nur Download zum Speichern, kein Ordnerzugriff).' + note);
       } catch (err) {
@@ -4782,6 +4792,29 @@
     // keep the document's dirty state so a print export cannot masquerade as
     // saving layers, guides or hidden drafts.
     showToast(t('metadata.print-exported', { name: name }));
+  });
+
+  $('btnDownloadJson').addEventListener('click', function () {
+    try {
+      const sourceName = (state.currentFileName || state.currentServerFileName || 'label.zpl')
+        .split(/[\\/]/).pop().replace(/[\x00-\x1f\x7f]/g, '').slice(0, 200) || 'label.zpl';
+      const payload = {
+        zpl: documentText(),
+        dpi: state.doc.labels.map(function (label) { return label.settings.dpi || 203; }),
+        activeLabel: activeIndex(),
+        name: sourceName,
+      };
+      // Use the same bounded decoder as file import and shared links so an
+      // exported JSON file is guaranteed to be readable by this Studio.
+      window.ZPLSharing.toDocument(payload);
+      const filename = exportFileBaseName() + '.zplkit.json';
+      downloadBlob(new Blob([JSON.stringify(payload, null, 2) + '\n'], { type: 'application/json;charset=utf-8' }), filename);
+      showToast(t('export.json.ready', { name: filename }));
+    } catch (error) {
+      showToast(error && error.code === 'tooLarge' ? t('export.json.tooLarge') : t('export.json.failed', {
+        error: error && error.message ? error.message : String(error),
+      }), true);
+    }
   });
 
   // ---------------------------------------------------------------------
@@ -4894,7 +4927,7 @@
 
   function exportFileBaseName() {
     const name = state.currentFileName || state.currentServerFileName || 'label.zpl';
-    return name.replace(/\.[^.]+$/, '') || 'label';
+    return name.split(/[\\/]/).pop().replace(/\.zplkit\.json$/i, '').replace(/\.[^.]+$/, '') || 'label';
   }
 
   // Raster exports deliberately use a higher, bounded resolution than the

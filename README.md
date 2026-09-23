@@ -44,6 +44,14 @@ Andere Anwendungen können mit `ZPLkit.Sharing.createUrl(studioUrl, payload)`
 einen „In ZPLkit-Studio öffnen“-Link erzeugen. Das funktioniert mit beiden
 Bundles oder dem eigenständigen `zplkit/zpl-sharing.js`.
 
+„Studio-JSON“ exportiert dieselbe portable Dokumentstruktur als Datei mit
+`zpl`, `dpi`, `activeLabel` und optionalem `name`. Sie lässt sich über
+„Datei öffnen…“ wieder importieren und behält Etikettenauswahl, DPI und die
+im ZPL eingebetteten Editor-Metadaten. JSON-Dateien folgen dem Payload-Format
+von `ZPLkit.Sharing`; damit kann eine Integration dieselben Daten auch direkt
+an `ZPLkit.Sharing.toDocument(payload)` übergeben. Die bisherigen Grenzen von
+256 Etiketten und 1 MiB ZPL gelten auch für diesen Import.
+
 [Format, API, JavaScript-/Python-Beispiele und Grenzen](docs/sharing.md) ·
 [Ausführbares Integrationsbeispiel](zplkit/examples/open-in-studio.html)
 
