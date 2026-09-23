@@ -347,6 +347,19 @@ const ZPLkit = require('./zplkit/dist/zplkit-full.js');
 
 Ein ausführbares Einbindungsbeispiel gibt es unter `zplkit/examples/library-demo.html`.
 
+Seit Version 1.6.0 enthalten beide Bundles `ZPLkit.Variables`: Platzhalter
+finden, Datensätze validieren und Label-Kopien mit Werten befüllen. Studio
+verwendet dieselbe Logik für Beispieldaten und Seriendruck.
+
+```js
+const filled = ZPLkit.Variables.apply(template, { Produkt: 'Schrauben' }, {
+  fields: [{ name: 'PRODUKT', type: 'string', required: true, maxLength: 60 }]
+});
+const zpl = ZPLkit.generate(filled); // ersetzt $PRODUKT$ im Modell
+```
+
+[Variablen-API, Standardwerte, Validierung und Seriendruck](docs/variables.md)
+
 ## Entwicklung
 
 Der vollständige lokale Prüflauf benötigt Go 1.21+ und Node.js 22+ und führt Go-Tests, `go vet`, JavaScript-Syntaxprüfungen, alle Node-Tests sowie den Bundle-Abgleich aus:

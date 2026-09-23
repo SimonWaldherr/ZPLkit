@@ -986,29 +986,15 @@
   // mail-merge section can check placeholder/column coverage for whichever
   // template a given CSV/XLSX row actually uses.
   function findVariablesIn(label) {
-    const names = new Set();
-    const re = /\$([A-Za-z0-9_]+)\$/g;
-    label.elements.forEach(function (el) {
-      const str = el.type === 'barcode' ? el.data : (el.type === 'text' ? el.text : '');
-      if (!str) return;
-      let m;
-      re.lastIndex = 0;
-      while ((m = re.exec(str))) names.add(m[1]);
-    });
-    return Array.from(names).sort();
+    return window.ZPLVariables.discover(label);
   }
   function findVariables() {
     return findVariablesIn(state.label);
   }
   function applySampleData(str) {
     if (!state.sampleDataMode || !str) return str;
-    return str.replace(/\$([A-Za-z0-9_]+)\$/g, function (whole, name) {
-      const v = state.sampleValues[name];
-      if (v !== undefined && v !== '') return v;
-      // Either never set, or explicitly empty in an imported XML (e.g. <EIKTO/>) -
-      // both are "no real value"; when the user wants unfilled placeholders
-      // hidden, blank them instead of showing the literal $NAME$ token.
-      return state.hideUnfilledPlaceholders ? '' : whole;
+    return window.ZPLVariables.substitute(str, state.sampleValues, {
+      caseSensitive: true, missing: state.hideUnfilledPlaceholders ? 'empty' : 'keep'
     });
   }
 
@@ -1017,13 +1003,10 @@
   // let a value containing ^ or ~ escape its ^FD field and become a command.
   // The generator owns escaping, so its output remains safe for printers.
   function labelWithSampleData(label) {
-    const cloned = cloneLabel(label);
-    if (!state.sampleDataMode) return cloned;
-    cloned.elements.forEach(function (el) {
-      if (el.type === 'text') el.text = applySampleData(el.text || '');
-      else if (el.type === 'barcode') el.data = applySampleData(el.data || '');
+    if (!state.sampleDataMode) return cloneLabel(label);
+    return window.ZPLVariables.apply(label, state.sampleValues, {
+      caseSensitive: true, missing: state.hideUnfilledPlaceholders ? 'empty' : 'keep'
     });
-    return cloned;
   }
   // ---------------------------------------------------------------------
   // Printer resolution / physical units
@@ -6175,12 +6158,7 @@
   // matching is case-insensitive everywhere in this section (both here and
   // in renderMergePreview's coverage check below).
   function lookupRowValue(row, name) {
-    if (row[name] !== undefined) return row[name]; // fast path: exact match
-    const lower = name.toLowerCase();
-    for (const key in row) {
-      if (key.toLowerCase() === lower) return row[key];
-    }
-    return undefined;
+    return window.ZPLVariables.lookup(row, name);
   }
 
   // The export-time counterpart of applySampleData(): same $NAME$ syntax,
@@ -6190,19 +6168,7 @@
   // column is far more likely to be a mapping mistake worth noticing in the
   // output than data the user actually wants blank.
   function applyRowToLabel(templateLabel, row) {
-    const cloned = cloneLabel(templateLabel);
-    function substitute(str) {
-      if (!str) return str;
-      return str.replace(/\$([A-Za-z0-9_]+)\$/g, function (whole, name) {
-        const v = lookupRowValue(row, name);
-        return (v !== undefined && v !== '') ? v : whole;
-      });
-    }
-    cloned.elements.forEach(function (el) {
-      if (el.type === 'text') el.text = substitute(el.text);
-      else if (el.type === 'barcode') el.data = substitute(el.data);
-    });
-    return cloned;
+    return window.ZPLVariables.apply(templateLabel, row);
   }
 
   function mergeActiveSheet() {

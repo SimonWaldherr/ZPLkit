@@ -16,12 +16,13 @@
   // Bumped by hand on a breaking or notable change to the public surface
   // below. Not tied to the editor's own git history - a consumer pinning a
   // copy of a dist/ bundle cares about this API, not about editor UI changes.
-  const VERSION = '1.5.0';
+  const VERSION = '1.6.0';
 
   // name-in-namespace -> global the module attaches itself to.
   const MODULES = {
     Sharing: 'ZPLSharing',
     Model: 'ZPLModel',
+    Variables: 'ZPLVariables',
     Dpi: 'ZPLDpi',
     EditorMetadata: 'ZPLEditorMetadata',
     Parser: 'ZPLParser',
